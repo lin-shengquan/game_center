@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>捉娃娃机 - Claw Machine</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-area { width: 360px; height: 400px; background: #2d2d4a; border: 4px solid #6366f1; border-radius: 15px; position: relative; overflow: hidden; }
+  #glass-window { width: 320px; height: 250px; background: rgba(100, 149, 237, 0.1); border: 2px solid rgba(100, 149, 237, 0.3); border-radius: 10px; position: absolute; top: 20px; left: 20px; }
+  #claw { position: absolute; top: 20px; left: 150px; width: 60px; height: 40px; transition: left 0.1s linear; z-index: 10; }
+  #claw-arm { width: 4px; height: 30px; background: #888; margin: 0 auto; }
+  #claw-fingers { width: 60px; height: 10px; display: flex; justify-content: center; align-items: flex-end; }
+  #claw-fingers .finger { width: 25px; height: 25px; border: 3px solid #888; border-top: none; border-radius: 0 0 15px 15px; position: relative; }
+  #claw-fingers .finger.left { border-right: none; transform-origin: right; transform: rotate(-30deg); }
+  #claw-fingers .finger.right { border-left: none; transform-origin: left; transform: rotate(30deg); }
+  #claw.folded .finger.left { transform: rotate(-10deg); }
+  #claw.folded .finger.right { transform: rotate(10deg); }
+  #claw.closed .finger.left { transform: rotate(20deg); }
+  #claw.closed .finger.right { transform: rotate(-20deg); }
+  .toy { position: absolute; font-size: 36px; cursor: pointer; transition: transform 0.2s; }
+  .toy:hover { transform: scale(1.1); }
+  .toy.caught { z-index: 20; }
+  #control-panel { width: 360px; margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .direction-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+  .dir-btn { width: 70px; height: 70px; font-size: 24px; background: #4a4a6a; border-radius: 10px; border: none; color: #fff; cursor: pointer; }
+  .dir-btn:hover { background: #5a5a8a; }
+  .dir-btn:active { background: #6366f1; }
+  .dir-btn.up { grid-column: 2; grid-row: 1; }
+  .dir-btn.left { grid-column: 1; grid-row: 2; }
+  .dir-btn.right { grid-column: 3; grid-row: 2; }
+  .action-controls { display: flex; justify-content: center; gap: 15px; }
+  .action-btn { padding: 12px 30px; font-size: 16px; font-weight: bold; border: none; border-radius: 20px; cursor: pointer; }
+  .action-btn.drop { background: #ef4444; color: #fff; }
+  .action-btn.drop:hover { background: #dc2626; }
+  .action-btn.reset { background: #6366f1; color: #fff; }
+  .action-btn.reset:hover { background: #4f46e5; }
+  #score-display { text-align: center; margin-top: 10px; font-size: 18px; }
+  #score-display span { color: #4ade80; font-weight: bold; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="game-area">
+    <div id="glass-window"></div>
+    <div id="claw">
+      <div id="claw-arm"></div>
+      <div id="claw-fingers">
+        <div class="finger left"></div>
+        <div class="finger right"></div>
+      </div>
+    </div>
+    <div class="toy" style="top: 180px; left: 40px;">🐻</div>
+    <div class="toy" style="top: 170px; left: 100px;">🐰</div>
+    <div class="toy" style="top: 190px; left: 160px;">🐱</div>
+    <div class="toy" style="top: 175px; left: 220px;">🐼</div>
+    <div class="toy" style="top: 200px; left: 280px;">🐨</div>
+    <div class="toy" style="top: 220px; left: 70px;">🦊</div>
+    <div class="toy" style="top: 210px; left: 130px;">🐯</div>
+    <div class="toy" style="top: 225px; left: 190px;">🦁</div>
+    <div class="toy" style="top: 215px; left: 250px;">🐮</div>
+  </div>
+  
+  <div id="control-panel">
+    <div class="direction-controls">
+      <button class="dir-btn up">↑</button>
+      <button class="dir-btn left">←</button>
+      <button class="dir-btn right">→</button>
+    </div>
+    <div class="action-controls">
+      <button class="action-btn drop" id="dropBtn">抓取</button>
+      <button class="action-btn reset" id="resetBtn">重置</button>
+    </div>
+    <div id="score-display">已抓到: <span id="score">0</span> 个娃娃</div>
+  </div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2>🎉 抓到娃娃啦！</h2>
+  <button class="action-btn reset" id="continueBtn">继续游戏</button>
+</div>
+
+<script>
+(function() {
+  var claw = document.getElementById('claw');
+  var dropBtn = document.getElementById('dropBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var scoreEl = document.getElementById('score');
+  var winMessage = document.getElementById('winMessage');
+  var continueBtn = document.getElementById('continueBtn');
+  
+  var clawX = 150;
+  var clawY = 20;
+  var isDropping = false;
+  var isClosed = false;
+  var score = 0;
+  var moveSpeed = 8;
+  
+  var toys = [
+    { el: null, x: 40, y: 180, caught: false },
+    { el: null, x: 100, y: 170, caught: false },
+    { el: null, x: 160, y: 190, caught: false },
+    { el: null, x: 220, y: 175, caught: false },
+    { el: null, x: 280, y: 200, caught: false },
+    { el: null, x: 70, y: 220, caught: false },
+    { el: null, x: 130, y: 210, caught: false },
+    { el: null, x: 190, y: 225, caught: false },
+    { el: null, x: 250, y: 215, caught: false }
+  ];
+  
+  var toyElements = document.querySelectorAll('.toy');
+  toyElements.forEach(function(el, i) {
+    toys[i].el = el;
+  });
+  
+  function moveClaw(dx) {
+    if (isDropping) return;
+    
+    clawX += dx * moveSpeed;
+    
+    if (clawX < 20) clawX = 20;
+    if (clawX > 280) clawX = 280;
+    
+    claw.style.left = clawX + 'px';
+  }
+  
+  function dropClaw() {
+    if (isDropping) return;
+    
+    isDropping = true;
+    claw.classList.remove('folded');
+    
+    var targetY = 200;
+    var speed = 3;
+    
+    function animateDrop() {
+      clawY += speed;
+      claw.style.top = clawY + 'px';
+      
+      if (clawY >= targetY) {
+        clawY = targetY;
+        claw.style.top = clawY + 'px';
+        
+        setTimeout(grabToy, 300);
+      } else {
+        requestAnimationFrame(animateDrop);
+      }
+    }
+    
+    animateDrop();
+  }
+  
+  function grabToy() {
+    claw.classList.add('closed');
+    isClosed = true;
+    
+    var caughtToy = null;
+    var clawCenterX = clawX + 30;
+    var clawCenterY = clawY + 40;
+    
+    for (var i = 0; i < toys.length; i++) {
+      var toy = toys[i];
+      if (!toy.caught) {
+        var toyCenterX = toy.x + 18;
+        var toyCenterY = toy.y + 18;
+        var dist = Math.sqrt(Math.pow(clawCenterX - toyCenterX, 2) + Math.pow(clawCenterY - toyCenterY, 2));
+        
+        if (dist < 35) {
+          caughtToy = toy;
+          break;
+        }
+      }
+    }
+    
+    setTimeout(function() {
+      if (caughtToy) {
+        caughtToy.caught = true;
+        caughtToy.el.classList.add('caught');
+        caughtToy.el.style.top = (clawY + 30) + 'px';
+        caughtToy.el.style.left = (clawX + 10) + 'px';
+      }
+      
+      retractClaw(caughtToy);
+    }, 500);
+  }
+  
+  function retractClaw(caughtToy) {
+    var speed = 4;
+    
+    function animateRetract() {
+      clawY -= speed;
+      claw.style.top = clawY + 'px';
+      
+      if (caughtToy) {
+        caughtToy.el.style.top = (clawY + 30) + 'px';
+        caughtToy.el.style.left = (clawX + 10) + 'px';
+      }
+      
+      if (clawY <= 20) {
+        clawY = 20;
+        claw.style.top = clawY + 'px';
+        
+        if (caughtToy) {
+          caughtToy.el.style.top = (clawY + 30) + 'px';
+          caughtToy.el.style.left = (clawX + 10) + 'px';
+          
+          clawX = 380;
+          claw.style.left = clawX + 'px';
+          caughtToy.el.style.left = (clawX + 10) + 'px';
+          
+          setTimeout(function() {
+            caughtToy.el.style.display = 'none';
+            score++;
+            scoreEl.textContent = score;
+            
+            winMessage.style.display = 'block';
+            clawX = 150;
+            claw.style.left = clawX + 'px';
+          }, 500);
+        }
+        
+        claw.classList.remove('closed');
+        claw.classList.add('folded');
+        isDropping = false;
+        isClosed = false;
+      } else {
+        requestAnimationFrame(animateRetract);
+      }
+    }
+    
+    animateRetract();
+  }
+  
+  function resetGame() {
+    isDropping = false;
+    isClosed = false;
+    clawX = 150;
+    clawY = 20;
+    claw.style.left = clawX + 'px';
+    claw.style.top = clawY + 'px';
+    claw.classList.remove('closed');
+    claw.classList.add('folded');
+    
+    toys.forEach(function(toy) {
+      toy.caught = false;
+      toy.el.style.display = 'block';
+      toy.el.classList.remove('caught');
+      toy.el.style.top = toy.y + 'px';
+      toy.el.style.left = toy.x + 'px';
+    });
+    
+    winMessage.style.display = 'none';
+  }
+  
+  function handleKeyDown(e) {
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'a':
+      case 'A':
+        e.preventDefault();
+        moveClaw(-1);
+        break;
+      case 'ArrowRight':
+      case 'd':
+      case 'D':
+        e.preventDefault();
+        moveClaw(1);
+        break;
+      case ' ':
+        e.preventDefault();
+        dropClaw();
+        break;
+    }
+  }
+  
+  document.addEventListener('keydown', handleKeyDown);
+  
+  document.querySelector('.dir-btn.left').addEventListener('click', function() { moveClaw(-1); });
+  document.querySelector('.dir-btn.right').addEventListener('click', function() { moveClaw(1); });
+  
+  dropBtn.addEventListener('click', dropClaw);
+  resetBtn.addEventListener('click', resetGame);
+  continueBtn.addEventListener('click', function() {
+    winMessage.style.display = 'none';
+  });
+  
+  claw.classList.add('folded');
+})();
+</script>
+</body>
+</html>

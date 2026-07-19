@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>连连看 - Connect</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-board { display: grid; gap: 4px; background: #16213e; padding: 10px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .cell { width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; font-size: 28px; border-radius: 8px; cursor: pointer; transition: all 0.2s; background: #2a2a4a; position: relative; }
+  .cell:hover { background: #3a3a5a; }
+  .cell.selected { background: #3b82f6; transform: scale(1.1); }
+  .cell.matched { opacity: 0; pointer-events: none; }
+  .ui-bar { margin-bottom: 15px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .score-info { font-size: 18px; font-weight: bold; }
+  .time-info { font-size: 18px; }
+  .btn { padding: 8px 16px; font-size: 15px; font-weight: bold; background: #6366f1; color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #4f46e5; }
+  .btn:active { transform: scale(0.95); }
+  #canvas-layer { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 1000; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+  .win-message p { color: #cbd5e1; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="score-info">分数: <span id="score">0</span></div>
+    <div class="time-info">时间: <span id="time">60</span>秒</div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+    <button class="btn" id="hintBtn">提示</button>
+    <button class="btn" id="shuffleBtn">洗牌</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<canvas id="canvas-layer"></canvas>
+
+<div class="win-message" id="winMessage">
+  <h2>🎉 恭喜过关！</h2>
+  <p>得分: <span id="winScore">0</span></p>
+  <button class="btn" id="newGameWinBtn">新游戏</button>
+</div>
+
+<script>
+(function() {
+  var ROWS = 6;
+  var COLS = 8;
+  var board = [];
+  var selected = null;
+  var score = 0;
+  var timeLeft = 60;
+  var timer = null;
+  var isAnimating = false;
+  var symbols = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
+  
+  var boardEl = document.getElementById('game-board');
+  var scoreEl = document.getElementById('score');
+  var timeEl = document.getElementById('time');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var hintBtn = document.getElementById('hintBtn');
+  var shuffleBtn = document.getElementById('shuffleBtn');
+  var canvas = document.getElementById('canvas-layer');
+  var ctx = canvas.getContext('2d');
+  var winMessage = document.getElementById('winMessage');
+  var winScoreEl = document.getElementById('winScore');
+  var newGameWinBtn = document.getElementById('newGameWinBtn');
+  
+  function initGame() {
+    board = generateBoard();
+    selected = null;
+    score = 0;
+    timeLeft = 60;
+    isAnimating = false;
+    updateUI();
+    renderBoard();
+    winMessage.style.display = 'none';
+    clearCanvas();
+    
+    if (timer) clearInterval(timer);
+    timer = setInterval(function() {
+      timeLeft--;
+      timeEl.textContent = timeLeft;
+      
+      if (timeLeft <= 0) {
+        clearInterval(timer);
+        alert('时间到！游戏结束');
+        initGame();
+      }
+    }, 1000);
+  }
+  
+  function generateBoard() {
+    var pairs = (ROWS * COLS) / 2;
+    var arr = [];
+    for (var i = 0; i < pairs; i++) {
+      var symbol = symbols[i % symbols.length];
+      arr.push(symbol, symbol);
+    }
+    
+    for (var j = arr.length - 1; j > 0; j--) {
+      var k = Math.floor(Math.random() * (j + 1));
+      [arr[j], arr[k]] = [arr[k], arr[j]];
+    }
+    
+    var grid = [];
+    for (var row = 0; row < ROWS; row++) {
+      grid.push([]);
+      for (var col = 0; col < COLS; col++) {
+        grid[row].push({ symbol: arr[row * COLS + col], matched: false });
+      }
+    }
+    return grid;
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    boardEl.style.gridTemplateColumns = `repeat(${COLS}, 45px)`;
+    
+    for (var row = 0; row < ROWS; row++) {
+      for (var col = 0; col < COLS; col++) {
+        var cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.row = row;
+        cell.dataset.col = col;
+        
+        if (!board[row][col].matched) {
+          cell.textContent = board[row][col].symbol;
+        } else {
+          cell.classList.add('matched');
+        }
+        
+        if (selected && selected.row === row && selected.col === col) {
+          cell.classList.add('selected');
+        }
+        
+        cell.addEventListener('click', function() {
+          onCellClick(parseInt(this.dataset.row), parseInt(this.dataset.col));
+        });
+        
+        boardEl.appendChild(cell);
+      }
+    }
+    
+    resizeCanvas();
+  }
+  
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  
+  function onCellClick(row, col) {
+    if (isAnimating) return;
+    if (board[row][col].matched) return;
+    
+    if (!selected) {
+      selected = { row, col };
+      renderBoard();
+    } else if (selected.row === row && selected.col === col) {
+      selected = null;
+      renderBoard();
+    } else {
+      if (board[row][col].symbol === board[selected.row][selected.col].symbol) {
+        var path = findPath(selected.row, selected.col, row, col);
+        if (path) {
+          isAnimating = true;
+          drawPath(path);
+          setTimeout(function() {
+            board[selected.row][selected.col].matched = true;
+            board[row][col].matched = true;
+            score += 10;
+            updateUI();
+            renderBoard();
+            clearCanvas();
+            isAnimating = false;
+            
+            if (checkWin()) {
+              clearInterval(timer);
+              winScoreEl.textContent = score + timeLeft * 2;
+              winMessage.style.display = 'block';
+            } else if (!hasValidMoves()) {
+              alert('没有可消除的配对了！自动洗牌...');
+              shuffleBoard();
+            }
+          }, 300);
+        } else {
+          selected = { row, col };
+          renderBoard();
+        }
+      } else {
+        selected = { row, col };
+        renderBoard();
+      }
+    }
+  }
+  
+  function updateUI() {
+    scoreEl.textContent = score;
+  }
+  
+  function checkWin() {
+    for (var row = 0; row < ROWS; row++) {
+      for (var col = 0; col < COLS; col++) {
+        if (!board[row][col].matched) return false;
+      }
+    }
+    return true;
+  }
+  
+  function hasValidMoves() {
+    for (var r1 = 0; r1 < ROWS; r1++) {
+      for (var c1 = 0; c1 < COLS; c1++) {
+        if (board[r1][c1].matched) continue;
+        for (var r2 = 0; r2 < ROWS; r2++) {
+          for (var c2 = 0; c2 < COLS; c2++) {
+            if (board[r2][c2].matched) continue;
+            if (r1 === r2 && c1 === c2) continue;
+            if (board[r1][c1].symbol === board[r2][c2].symbol) {
+              if (findPath(r1, c1, r2, c2)) return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+  
+  function findPath(r1, c1, r2, c2) {
+    var directions = [
+      { dr: -1, dc: 0 },
+      { dr: 1, dc: 0 },
+      { dr: 0, dc: -1 },
+      { dr: 0, dc: 1 }
+    ];
+    
+    function isValid(r, c) {
+      return r >= -1 && r <= ROWS && c >= -1 && c <= COLS;
+    }
+    
+    function isEmpty(r, c) {
+      if (r === r1 && c === c1) return true;
+      if (r === r2 && c === c2) return true;
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
+      return board[r][c].matched;
+    }
+    
+    var queue = [{ r: r1, c: c1, path: [{ r: r1, c: c1 }], dir: -1, turns: 0 }];
+    var visited = new Map();
+    
+    while (queue.length > 0) {
+      var current = queue.shift();
+      
+      if (current.r === r2 && current.c === c2) {
+        return current.path;
+      }
+      
+      for (var i = 0; i < directions.length; i++) {
+        var dr = directions[i].dr;
+        var dc = directions[i].dc;
+        var newR = current.r + dr;
+        var newC = current.c + dc;
+        var newTurns = current.turns + (current.dir !== -1 && current.dir !== i ? 1 : 0);
+        
+        if (newTurns > 2) continue;
+        if (!isValid(newR, newC)) continue;
+        if (!isEmpty(newR, newC)) continue;
+        
+        var key = newR + ',' + newC + ',' + i;
+        if (visited.has(key) && visited.get(key) <= newTurns) continue;
+        
+        visited.set(key, newTurns);
+        queue.push({
+          r: newR,
+          c: newC,
+          path: current.path.concat([{ r: newR, c: newC }]),
+          dir: i,
+          turns: newTurns
+        });
+      }
+    }
+    
+    return null;
+  }
+  
+  function drawPath(path) {
+    ctx.strokeStyle = '#4ade80';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    
+    var rect = boardEl.getBoundingClientRect();
+    var cellSize = 45;
+    var gap = 4;
+    var padding = 10;
+    
+    for (var i = 0; i < path.length; i++) {
+      var x = rect.left + padding + path[i].c * (cellSize + gap) + cellSize / 2;
+      var y = rect.top + padding + path[i].r * (cellSize + gap) + cellSize / 2;
+      
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    
+    ctx.stroke();
+  }
+  
+  function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+  
+  function showHint() {
+    if (isAnimating) return;
+    
+    for (var r1 = 0; r1 < ROWS; r1++) {
+      for (var c1 = 0; c1 < COLS; c1++) {
+        if (board[r1][c1].matched) continue;
+        
+        for (var r2 = 0; r2 < ROWS; r2++) {
+          for (var c2 = 0; c2 < COLS; c2++) {
+            if (board[r2][c2].matched) continue;
+            if (r1 === r2 && c1 === c2) continue;
+            
+            if (board[r1][c1].symbol === board[r2][c2].symbol) {
+              var path = findPath(r1, c1, r2, c2);
+              if (path) {
+                selected = { row: r1, col: c1 };
+                renderBoard();
+                
+                var cells = document.querySelectorAll('.cell');
+                cells.forEach(function(cell) {
+                  var row = parseInt(cell.dataset.row);
+                  var col = parseInt(cell.dataset.col);
+                  if ((row === r2 && col === c2)) {
+                    cell.classList.add('selected');
+                  }
+                });
+                
+                setTimeout(function() {
+                  selected = null;
+                  renderBoard();
+                }, 1500);
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    alert('没有可消除的配对了！');
+  }
+  
+  function shuffleBoard() {
+    var unmatched = [];
+    var positions = [];
+    
+    for (var row = 0; row < ROWS; row++) {
+      for (var col = 0; col < COLS; col++) {
+        if (!board[row][col].matched) {
+          unmatched.push(board[row][col].symbol);
+          positions.push({ row, col });
+        }
+      }
+    }
+    
+    for (var i = unmatched.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      [unmatched[i], unmatched[j]] = [unmatched[j], unmatched[i]];
+    }
+    
+    for (var k = 0; k < positions.length; k++) {
+      var pos = positions[k];
+      board[pos.row][pos.col].symbol = unmatched[k];
+    }
+    
+    selected = null;
+    renderBoard();
+  }
+  
+  newGameBtn.addEventListener('click', initGame);
+  newGameWinBtn.addEventListener('click', initGame);
+  hintBtn.addEventListener('click', showHint);
+  shuffleBtn.addEventListener('click', shuffleBoard);
+  
+  window.addEventListener('resize', resizeCanvas);
+  
+  resizeCanvas();
+  initGame();
+})();
+</script>
+</body>
+</html>

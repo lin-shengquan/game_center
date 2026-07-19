@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>挪车冲冲冲</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; }
+  .ui-bar { margin-bottom: 15px; display: flex; gap: 30px; align-items: center; }
+  .level-box, .moves-box { text-align: center; }
+  .level-box .label, .moves-box .label { font-size: 14px; color: #888; }
+  .level-box .value, .moves-box .value { font-size: 24px; font-weight: bold; color: #4ade80; }
+  #game-board { background: #1e293b; padding: 10px; border-radius: 10px; position: relative; }
+  .cell { width: 50px; height: 50px; background: #334155; border: 1px solid rgba(255,255,255,0.1); }
+  .car { position: absolute; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; transition: all 0.3s; border-radius: 5px; }
+  .car.horizontal { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+  .car.vertical { background: linear-gradient(180deg, #ef4444, #f87171); }
+  .car.target { background: linear-gradient(90deg, #4ade80, #34d399); }
+  .car.selected { box-shadow: 0 0 15px rgba(255,255,255,0.5); }
+  .exit { position: absolute; width: 50px; height: 50px; background: rgba(239, 68, 68, 0.3); border: 2px dashed #ef4444; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .btn { padding: 10px 25px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; margin-top: 15px; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:active { transform: scale(0.95); }
+  .game-over { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px; text-align: center; display: none; z-index: 100; border: 2px solid #6366f1; }
+  .game-over h2 { color: #4ade80; margin-bottom: 10px; font-size: 32px; }
+  .game-over .final-score { font-size: 36px; color: #fff; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="level-box">
+      <div class="label">关卡</div>
+      <div class="value" id="level">1</div>
+    </div>
+    <div class="moves-box">
+      <div class="label">步数</div>
+      <div class="value" id="moves">0</div>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<div class="game-over" id="gameOver">
+  <h2>🎉 恭喜过关！</h2>
+  <div class="final-score" id="finalScore">用时 0 步</div>
+  <button class="btn" id="nextLevelBtn">下一关</button>
+</div>
+
+<script>
+(function() {
+  var boardEl = document.getElementById('game-board');
+  var levelEl = document.getElementById('level');
+  var movesEl = document.getElementById('moves');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var gameOverEl = document.getElementById('gameOver');
+  var finalScoreEl = document.getElementById('finalScore');
+  var nextLevelBtn = document.getElementById('nextLevelBtn');
+  
+  var CELL_SIZE = 50;
+  var COLS = 6;
+  var ROWS = 6;
+  
+  var LEVELS = [
+    [
+      { x: 0, y: 2, w: 2, h: 1, dir: 'h', isTarget: true },
+      { x: 0, y: 0, w: 2, h: 1, dir: 'h' },
+      { x: 3, y: 0, w: 2, h: 1, dir: 'h' },
+      { x: 2, y: 1, w: 1, h: 2, dir: 'v' },
+      { x: 4, y: 1, w: 1, h: 2, dir: 'v' },
+      { x: 0, y: 3, w: 1, h: 2, dir: 'v' },
+      { x: 3, y: 3, w: 2, h: 1, dir: 'h' },
+      { x: 5, y: 3, w: 1, h: 3, dir: 'v' },
+      { x: 1, y: 4, w: 2, h: 1, dir: 'h' },
+      { x: 0, y: 5, w: 2, h: 1, dir: 'h' },
+    ],
+    [
+      { x: 1, y: 2, w: 2, h: 1, dir: 'h', isTarget: true },
+      { x: 0, y: 0, w: 2, h: 1, dir: 'h' },
+      { x: 3, y: 0, w: 2, h: 1, dir: 'h' },
+      { x: 0, y: 1, w: 1, h: 2, dir: 'v' },
+      { x: 3, y: 1, w: 1, h: 2, dir: 'v' },
+      { x: 4, y: 1, w: 1, h: 2, dir: 'v' },
+      { x: 2, y: 3, w: 1, h: 2, dir: 'v' },
+      { x: 0, y: 3, w: 2, h: 1, dir: 'h' },
+      { x: 3, y: 3, w: 2, h: 1, dir: 'h' },
+      { x: 1, y: 4, w: 1, h: 2, dir: 'v' },
+      { x: 2, y: 5, w: 2, h: 1, dir: 'h' },
+      { x: 4, y: 4, w: 1, h: 2, dir: 'v' },
+    ],
+    [
+      { x: 2, y: 2, w: 2, h: 1, dir: 'h', isTarget: true },
+      { x: 0, y: 0, w: 1, h: 2, dir: 'v' },
+      { x: 1, y: 0, w: 2, h: 1, dir: 'h' },
+      { x: 4, y: 0, w: 2, h: 1, dir: 'h' },
+      { x: 2, y: 0, w: 1, h: 2, dir: 'v' },
+      { x: 3, y: 1, w: 1, h: 2, dir: 'v' },
+      { x: 0, y: 2, w: 2, h: 1, dir: 'h' },
+      { x: 5, y: 1, w: 1, h: 3, dir: 'v' },
+      { x: 0, y: 3, w: 1, h: 2, dir: 'v' },
+      { x: 1, y: 3, w: 1, h: 2, dir: 'v' },
+      { x: 2, y: 3, w: 2, h: 1, dir: 'h' },
+      { x: 4, y: 3, w: 1, h: 3, dir: 'v' },
+      { x: 0, y: 5, w: 2, h: 1, dir: 'h' },
+    ],
+  ];
+  
+  var cars = [];
+  var selectedCar = null;
+  var level = 0;
+  var moves = 0;
+  
+  function initGame(lvl) {
+    level = lvl || 0;
+    moves = 0;
+    selectedCar = null;
+    levelEl.textContent = level + 1;
+    movesEl.textContent = moves;
+    gameOverEl.style.display = 'none';
+    
+    cars = JSON.parse(JSON.stringify(LEVELS[Math.min(level, LEVELS.length - 1)]));
+    renderBoard();
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    boardEl.style.width = (COLS * CELL_SIZE + 20) + 'px';
+    boardEl.style.height = (ROWS * CELL_SIZE + 20) + 'px';
+    
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.style.left = (c * CELL_SIZE + 10) + 'px';
+        cell.style.top = (r * CELL_SIZE + 10) + 'px';
+        cell.style.position = 'absolute';
+        boardEl.appendChild(cell);
+      }
+    }
+    
+    var exit = document.createElement('div');
+    exit.className = 'exit';
+    exit.textContent = '🚪';
+    exit.style.left = ((COLS - 1) * CELL_SIZE + 10) + 'px';
+    exit.style.top = (2 * CELL_SIZE + 10) + 'px';
+    boardEl.appendChild(exit);
+    
+    for (var i = 0; i < cars.length; i++) {
+      var car = cars[i];
+      var el = document.createElement('div');
+      el.className = 'car ' + (car.dir === 'h' ? 'horizontal' : 'vertical') + (car.isTarget ? ' target' : '');
+      el.dataset.index = i;
+      el.textContent = car.isTarget ? '🚗' : '🚙';
+      el.style.left = (car.x * CELL_SIZE + 10) + 'px';
+      el.style.top = (car.y * CELL_SIZE + 10) + 'px';
+      el.style.width = (car.w * CELL_SIZE) + 'px';
+      el.style.height = (car.h * CELL_SIZE) + 'px';
+      
+      if (selectedCar === i) {
+        el.classList.add('selected');
+      }
+      
+      el.addEventListener('click', function() {
+        onCarClick(parseInt(this.dataset.index));
+      });
+      
+      boardEl.appendChild(el);
+    }
+  }
+  
+  function onCarClick(index) {
+    if (selectedCar === index) {
+      selectedCar = null;
+      renderBoard();
+      return;
+    }
+    
+    selectedCar = index;
+    renderBoard();
+  }
+  
+  document.addEventListener('keydown', function(e) {
+    if (selectedCar === null) return;
+    
+    var car = cars[selectedCar];
+    var dx = 0, dy = 0;
+    
+    if (car.dir === 'h') {
+      if (e.key === 'ArrowLeft') dx = -1;
+      if (e.key === 'ArrowRight') dx = 1;
+    } else {
+      if (e.key === 'ArrowUp') dy = -1;
+      if (e.key === 'ArrowDown') dy = 1;
+    }
+    
+    if (dx !== 0 || dy !== 0) {
+      if (canMove(car, dx, dy)) {
+        car.x += dx;
+        car.y += dy;
+        moves++;
+        movesEl.textContent = moves;
+        renderBoard();
+        
+        if (checkWin()) {
+          setTimeout(function() {
+            gameOverEl.style.display = 'block';
+            finalScoreEl.textContent = '用时 ' + moves + ' 步';
+          }, 300);
+        }
+      }
+    }
+  });
+  
+  function canMove(car, dx, dy) {
+    var newX = car.x + dx;
+    var newY = car.y + dy;
+    
+    if (newX < 0 || newX + car.w > COLS || newY < 0 || newY + car.h > ROWS) {
+      return false;
+    }
+    
+    for (var i = 0; i < cars.length; i++) {
+      if (i === selectedCar) continue;
+      
+      var other = cars[i];
+      var overlap = !(newX + car.w <= other.x || other.x + other.w <= newX ||
+                     newY + car.h <= other.y || other.y + other.h <= newY);
+      
+      if (overlap) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  function checkWin() {
+    var target = cars.find(function(c) { return c.isTarget; });
+    return target && target.x === COLS - 2 && target.y === 2;
+  }
+  
+  newGameBtn.addEventListener('click', function() { initGame(0); });
+  nextLevelBtn.addEventListener('click', function() { initGame(level + 1); });
+  
+  initGame(0);
+})();
+</script>
+</body>
+</html>

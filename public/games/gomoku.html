@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>五子棋 - Gomoku</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-board { display: grid; grid-template-columns: repeat(15, 1fr); gap: 2px; background: #dcb35c; padding: 15px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .cell { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; }
+  .cell::before { content: ''; position: absolute; width: 100%; height: 100%; background: #dcb35c; }
+  .cell.highlight::before { background: rgba(255,255,255,0.3); }
+  .grid-line { position: absolute; background: #8b7355; }
+  .grid-line.h { width: 100%; height: 1px; top: 50%; left: 0; }
+  .grid-line.v { width: 1px; height: 100%; top: 0; left: 50%; }
+  .star-point { position: absolute; width: 6px; height: 6px; background: #8b7355; border-radius: 50%; }
+  .piece { width: 24px; height: 24px; border-radius: 50%; position: relative; z-index: 1; }
+  .piece.black { background: radial-gradient(circle at 30% 30%, #444, #000); box-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+  .piece.white { background: radial-gradient(circle at 30% 30%, #fff, #ccc); box-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+  .piece.last::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 6px; height: 6px; background: #ff4444; border-radius: 50%; }
+  .ui-bar { margin-bottom: 15px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .status { font-size: 18px; font-weight: bold; }
+  .btn { padding: 8px 20px; font-size: 16px; font-weight: bold; background: #6366f1; color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #4f46e5; }
+  .btn:active { transform: scale(0.95); }
+  .mode-btn { padding: 6px 14px; font-size: 14px; background: #4a4a6a; }
+  .mode-btn.active { background: #6366f1; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="status" id="status">黑棋先行</div>
+    <div class="mode-group">
+      <button class="btn mode-btn active" id="pveMode">人机对战</button>
+      <button class="btn mode-btn" id="pvpMode">双人对战</button>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2 id="winnerText">🎉 黑棋获胜！</h2>
+  <button class="btn" id="newGameWinBtn">再来一局</button>
+</div>
+
+<script>
+(function() {
+  var BOARD_SIZE = 15;
+  var board = [];
+  var currentPlayer = 1;
+  var gameMode = 'pve';
+  var isAIThinking = false;
+  var gameOver = false;
+  
+  var boardEl = document.getElementById('game-board');
+  var statusEl = document.getElementById('status');
+  var pveModeBtn = document.getElementById('pveMode');
+  var pvpModeBtn = document.getElementById('pvpMode');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var winMessage = document.getElementById('winMessage');
+  var winnerText = document.getElementById('winnerText');
+  var newGameWinBtn = document.getElementById('newGameWinBtn');
+  
+  var starPoints = [
+    { r: 3, c: 3 }, { r: 3, c: 11 }, { r: 7, c: 7 },
+    { r: 11, c: 3 }, { r: 11, c: 11 }
+  ];
+  
+  function initGame() {
+    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
+    currentPlayer = 1;
+    isAIThinking = false;
+    gameOver = false;
+    renderBoard();
+    statusEl.textContent = '黑棋先行';
+    winMessage.style.display = 'none';
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        var cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        
+        var hLine = document.createElement('div');
+        hLine.className = 'grid-line h';
+        cell.appendChild(hLine);
+        
+        var vLine = document.createElement('div');
+        vLine.className = 'grid-line v';
+        cell.appendChild(vLine);
+        
+        if (isStarPoint(r, c)) {
+          var star = document.createElement('div');
+          star.className = 'star-point';
+          cell.appendChild(star);
+        }
+        
+        if (board[r][c] !== 0) {
+          var piece = document.createElement('div');
+          piece.className = 'piece ' + (board[r][c] === 1 ? 'black' : 'white');
+          
+          if (isLastMove(r, c)) {
+            piece.classList.add('last');
+          }
+          
+          cell.appendChild(piece);
+        }
+        
+        cell.addEventListener('click', function() {
+          onCellClick(parseInt(this.dataset.row), parseInt(this.dataset.col));
+        });
+        
+        boardEl.appendChild(cell);
+      }
+    }
+  }
+  
+  function isStarPoint(r, c) {
+    return starPoints.some(function(p) { return p.r === r && p.c === c; });
+  }
+  
+  function isLastMove(r, c) {
+    for (var i = BOARD_SIZE - 1; i >= 0; i--) {
+      for (var j = BOARD_SIZE - 1; j >= 0; j--) {
+        if (board[i][j] !== 0) {
+          return i === r && j === c;
+        }
+      }
+    }
+    return false;
+  }
+  
+  function onCellClick(r, c) {
+    if (gameOver) return;
+    if (isAIThinking) return;
+    if (board[r][c] !== 0) return;
+    
+    makeMove(r, c);
+    
+    if (!gameOver && gameMode === 'pve' && currentPlayer === 2) {
+      isAIThinking = true;
+      statusEl.textContent = 'AI思考中...';
+      
+      setTimeout(function() {
+        aiMove();
+        isAIThinking = false;
+      }, 300);
+    }
+  }
+  
+  function makeMove(r, c) {
+    board[r][c] = currentPlayer;
+    renderBoard();
+    
+    if (checkWin(r, c)) {
+      gameOver = true;
+      statusEl.textContent = (currentPlayer === 1 ? '黑棋' : '白棋') + '获胜！';
+      winnerText.textContent = '🎉 ' + (currentPlayer === 1 ? '黑棋' : '白棋') + '获胜！';
+      winMessage.style.display = 'block';
+      return;
+    }
+    
+    if (checkDraw()) {
+      gameOver = true;
+      statusEl.textContent = '平局！';
+      winnerText.textContent = '🤝 平局！';
+      winMessage.style.display = 'block';
+      return;
+    }
+    
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    statusEl.textContent = (currentPlayer === 1 ? '黑棋' : '白棋') + '回合';
+  }
+  
+  function checkWin(r, c) {
+    var player = board[r][c];
+    var directions = [
+      [0, 1], [1, 0], [1, 1], [1, -1]
+    ];
+    
+    for (var i = 0; i < directions.length; i++) {
+      var count = 1;
+      var dr = directions[i][0];
+      var dc = directions[i][1];
+      
+      for (var j = 1; j < 5; j++) {
+        var nr = r + dr * j;
+        var nc = c + dc * j;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === player) {
+          count++;
+        } else {
+          break;
+        }
+      }
+      
+      for (var j = 1; j < 5; j++) {
+        var nr = r - dr * j;
+        var nc = c - dc * j;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === player) {
+          count++;
+        } else {
+          break;
+        }
+      }
+      
+      if (count >= 5) return true;
+    }
+    
+    return false;
+  }
+  
+  function checkDraw() {
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] === 0) return false;
+      }
+    }
+    return true;
+  }
+  
+  function aiMove() {
+    var bestScore = -Infinity;
+    var bestMoves = [];
+    var DEPTH = 3;
+    
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] !== 0) continue;
+        
+        var hasNeighbor = false;
+        for (var dr = -2; dr <= 2; dr++) {
+          for (var dc = -2; dc <= 2; dc++) {
+            var nr = r + dr;
+            var nc = c + dc;
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] !== 0) {
+              hasNeighbor = true;
+              break;
+            }
+          }
+          if (hasNeighbor) break;
+        }
+        
+        if (!hasNeighbor) continue;
+        
+        board[r][c] = 2;
+        var score = minimax(DEPTH - 1, -Infinity, Infinity, false);
+        board[r][c] = 0;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestMoves = [{ r, c }];
+        } else if (score === bestScore) {
+          bestMoves.push({ r, c });
+        }
+      }
+    }
+    
+    if (bestMoves.length === 0) {
+      for (var r = 0; r < BOARD_SIZE; r++) {
+        for (var c = 0; c < BOARD_SIZE; c++) {
+          if (board[r][c] === 0) {
+            bestMoves.push({ r, c });
+            break;
+          }
+        }
+        if (bestMoves.length > 0) break;
+      }
+    }
+    
+    var move = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+    makeMove(move.r, move.c);
+  }
+  
+  function minimax(depth, alpha, beta, isMaximizing) {
+    var winner = checkWinner();
+    if (winner !== 0) {
+      return winner === 2 ? 10000 : -10000;
+    }
+    
+    if (depth === 0 || checkDraw()) {
+      return evaluatePosition();
+    }
+    
+    if (isMaximizing) {
+      var maxScore = -Infinity;
+      for (var r = 0; r < BOARD_SIZE; r++) {
+        for (var c = 0; c < BOARD_SIZE; c++) {
+          if (board[r][c] !== 0) continue;
+          
+          var hasNeighbor = false;
+          for (var dr = -2; dr <= 2; dr++) {
+            for (var dc = -2; dc <= 2; dc++) {
+              var nr = r + dr;
+              var nc = c + dc;
+              if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] !== 0) {
+                hasNeighbor = true;
+                break;
+              }
+            }
+            if (hasNeighbor) break;
+          }
+          
+          if (!hasNeighbor) continue;
+          
+          board[r][c] = 2;
+          var score = minimax(depth - 1, alpha, beta, false);
+          board[r][c] = 0;
+          
+          maxScore = Math.max(maxScore, score);
+          alpha = Math.max(alpha, score);
+          if (beta <= alpha) break;
+        }
+        if (beta <= alpha) break;
+      }
+      return maxScore;
+    } else {
+      var minScore = Infinity;
+      for (var r = 0; r < BOARD_SIZE; r++) {
+        for (var c = 0; c < BOARD_SIZE; c++) {
+          if (board[r][c] !== 0) continue;
+          
+          var hasNeighbor = false;
+          for (var dr = -2; dr <= 2; dr++) {
+            for (var dc = -2; dc <= 2; dc++) {
+              var nr = r + dr;
+              var nc = c + dc;
+              if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] !== 0) {
+                hasNeighbor = true;
+                break;
+              }
+            }
+            if (hasNeighbor) break;
+          }
+          
+          if (!hasNeighbor) continue;
+          
+          board[r][c] = 1;
+          var score = minimax(depth - 1, alpha, beta, true);
+          board[r][c] = 0;
+          
+          minScore = Math.min(minScore, score);
+          beta = Math.min(beta, score);
+          if (beta <= alpha) break;
+        }
+        if (beta <= alpha) break;
+      }
+      return minScore;
+    }
+  }
+  
+  function checkWinner() {
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] !== 0 && checkWin(r, c)) {
+          return board[r][c];
+        }
+      }
+    }
+    return 0;
+  }
+  
+  function evaluatePosition() {
+    var score = 0;
+    
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] !== 0) {
+          var player = board[r][c];
+          var multiplier = player === 2 ? 1 : 0.95;
+          
+          var directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+          
+          for (var i = 0; i < directions.length; i++) {
+            var count = 1;
+            var openEnds = 0;
+            var dr = directions[i][0];
+            var dc = directions[i][1];
+            
+            for (var j = 1; j < 5; j++) {
+              var nr = r + dr * j;
+              var nc = c + dc * j;
+              if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                if (board[nr][nc] === player) {
+                  count++;
+                } else if (board[nr][nc] === 0) {
+                  openEnds++;
+                  break;
+                } else {
+                  break;
+                }
+              } else {
+                break;
+              }
+            }
+            
+            for (var j = 1; j < 5; j++) {
+              var nr = r - dr * j;
+              var nc = c - dc * j;
+              if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                if (board[nr][nc] === player) {
+                  count++;
+                } else if (board[nr][nc] === 0) {
+                  openEnds++;
+                  break;
+                } else {
+                  break;
+                }
+              } else {
+                break;
+              }
+            }
+            
+            score += getPatternScore(count, openEnds) * multiplier;
+          }
+        }
+      }
+    }
+    
+    var centerDist = Math.abs(BOARD_SIZE / 2 - 7.5);
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] === 2) {
+          score += (15 - Math.abs(r - 7) - Math.abs(c - 7)) * 2;
+        }
+      }
+    }
+    
+    return score;
+  }
+  
+  function getPatternScore(count, openEnds) {
+    if (count >= 5) return 100000;
+    if (count === 4) {
+      if (openEnds === 2) return 10000;
+      if (openEnds === 1) return 1000;
+      return 100;
+    }
+    if (count === 3) {
+      if (openEnds === 2) return 1000;
+      if (openEnds === 1) return 100;
+      return 10;
+    }
+    if (count === 2) {
+      if (openEnds === 2) return 100;
+      if (openEnds === 1) return 10;
+      return 1;
+    }
+    if (count === 1 && openEnds === 2) return 10;
+    return 0;
+  }
+  
+  pveModeBtn.addEventListener('click', function() {
+    gameMode = 'pve';
+    pveModeBtn.classList.add('active');
+    pvpModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  pvpModeBtn.addEventListener('click', function() {
+    gameMode = 'pvp';
+    pvpModeBtn.classList.add('active');
+    pveModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  newGameBtn.addEventListener('click', initGame);
+  newGameWinBtn.addEventListener('click', initGame);
+  
+  initGame();
+})();
+</script>
+</body>
+</html>

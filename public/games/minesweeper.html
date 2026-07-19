@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>扫雷 - Minesweeper</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    background: #0f0f23;
+    color: #e5e7eb;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #app {
+    --board-size: min(480px, calc(100vw - 24px), calc(100vh - 150px));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .hud {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: var(--board-size);
+    gap: 12px;
+  }
+
+  .score-box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 8px 14px;
+    min-width: 96px;
+    backdrop-filter: blur(6px);
+  }
+
+  .score-label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: #9ca3af;
+  }
+
+  .score-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fbbf24;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .score-box.time .score-value {
+    color: #22d3ee;
+  }
+
+  .title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    color: #cbd5e1;
+    text-align: center;
+    flex: 1;
+  }
+
+  .restart-btn {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    color: #052e16;
+    border: none;
+    border-radius: 12px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+    box-shadow: 0 4px 14px rgba(34, 197, 94, 0.35);
+    font-family: inherit;
+    white-space: nowrap;
+  }
+
+  .restart-btn:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 6px 18px rgba(34, 197, 94, 0.5);
+  }
+
+  .restart-btn:active {
+    transform: scale(0.96);
+  }
+
+  .stage {
+    position: relative;
+    width: var(--board-size);
+    aspect-ratio: 1 / 1;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #0a0a1a;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 0 60px rgba(99, 102, 241, 0.04);
+    padding: 8px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
+    gap: 3px;
+    width: 100%;
+    height: 100%;
+  }
+
+  .cell {
+    background: #33343f;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(14px, 4.6vw, 22px);
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.1s ease, transform 0.08s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+    position: relative;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cell:hover {
+    background: #41424f;
+  }
+
+  .cell:active {
+    transform: scale(0.92);
+  }
+
+  .cell.revealed {
+    background: #16162a;
+    cursor: default;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .cell.revealed:hover {
+    background: #16162a;
+  }
+
+  .cell.revealed:active {
+    transform: none;
+  }
+
+  .cell.flagged {
+    background: #3a2a1e;
+  }
+
+  .cell.flagged::after {
+    content: "🚩";
+    font-size: clamp(12px, 4vw, 20px);
+    line-height: 1;
+  }
+
+  .cell.mine {
+    background: #7f1d1d;
+  }
+
+  .cell.mine.exploded {
+    background: #ef4444;
+  }
+
+  .cell.mine::after {
+    content: "💣";
+    font-size: clamp(12px, 4vw, 20px);
+    line-height: 1;
+  }
+
+  .cell.n1 { color: #60a5fa; }
+  .cell.n2 { color: #4ade80; }
+  .cell.n3 { color: #f87171; }
+  .cell.n4 { color: #c084fc; }
+  .cell.n5 { color: #fb923c; }
+  .cell.n6 { color: #22d3ee; }
+  .cell.n7 { color: #f472b6; }
+  .cell.n8 { color: #d1d5db; }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(15, 15, 35, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+    z-index: 5;
+  }
+
+  .overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .overlay h2 {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: #ef4444;
+    text-shadow: 0 0 24px rgba(239, 68, 68, 0.6);
+  }
+
+  .overlay.win h2 {
+    color: #22c55e;
+    text-shadow: 0 0 24px rgba(34, 197, 94, 0.6);
+  }
+
+  .overlay .final-info {
+    font-size: 16px;
+    color: #cbd5e1;
+    letter-spacing: 1px;
+  }
+
+  .overlay .final-info b {
+    color: #22d3ee;
+    font-size: 22px;
+    margin: 0 4px;
+  }
+
+  .overlay .hint {
+    font-size: 12px;
+    color: #6b7280;
+    letter-spacing: 1px;
+  }
+
+  .overlay button {
+    margin-top: 6px;
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    color: #052e16;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 28px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(34, 197, 94, 0.45);
+    transition: transform 0.12s ease, filter 0.12s ease;
+    font-family: inherit;
+  }
+
+  .overlay button:hover { filter: brightness(1.08); }
+  .overlay button:active { transform: scale(0.96); }
+
+  .footer-hint {
+    font-size: 11px;
+    color: #4b5563;
+    letter-spacing: 1px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .footer-hint kbd {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-family: inherit;
+    color: #9ca3af;
+    margin: 0 1px;
+  }
+
+  @media (max-width: 380px) {
+    .score-value { font-size: 18px; }
+    .score-box { min-width: 80px; padding: 7px 11px; }
+    .title { font-size: 13px; letter-spacing: 2px; }
+    .restart-btn { padding: 9px 12px; font-size: 12px; }
+    .overlay h2 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div class="hud">
+      <div class="score-box">
+        <span class="score-label">剩余雷数</span>
+        <span class="score-value" id="mineCount">15</span>
+      </div>
+      <div class="title">扫 雷</div>
+      <div class="score-box time">
+        <span class="score-label">时间</span>
+        <span class="score-value" id="timer">0</span>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="grid" id="grid"></div>
+      <div class="overlay" id="overlay">
+        <h2 id="overlayTitle">游戏结束</h2>
+        <div class="final-info">用时 <b id="finalTime">0</b> 秒</div>
+        <button id="overlayBtn">重新开始</button>
+        <div class="hint">左键揭开 · 右键 / 长按标记</div>
+      </div>
+    </div>
+
+    <div class="footer-hint">
+      <kbd>左键</kbd> 揭开 · <kbd>右键</kbd> 标记 · <button id="restartBtn" class="restart-btn">重新开始</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 配置 ----------
+  var ROWS = 10;
+  var COLS = 10;
+  var MINE_COUNT = 15;
+
+  // ---------- 元素 ----------
+  var gridEl = document.getElementById("grid");
+  var mineCountEl = document.getElementById("mineCount");
+  var timerEl = document.getElementById("timer");
+  var overlay = document.getElementById("overlay");
+  var overlayTitle = document.getElementById("overlayTitle");
+  var finalTimeEl = document.getElementById("finalTime");
+  var overlayBtn = document.getElementById("overlayBtn");
+  var restartBtn = document.getElementById("restartBtn");
+
+  // ---------- 状态 ----------
+  var board = [];          // { mine, revealed, flagged, count }
+  var cells = [];          // DOM 元素
+  var started = false;
+  var gameOver = false;
+  var flagsPlaced = 0;
+  var revealedCount = 0;
+  var timer = 0;
+  var timerInterval = null;
+
+  // ---------- 构建网格 ----------
+  function buildGrid() {
+    gridEl.innerHTML = "";
+    cells = [];
+    board = [];
+    for (var r = 0; r < ROWS; r++) {
+      board[r] = [];
+      cells[r] = [];
+      for (var c = 0; c < COLS; c++) {
+        board[r][c] = { mine: false, revealed: false, flagged: false, count: 0 };
+        var cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.r = r;
+        cell.dataset.c = c;
+        gridEl.appendChild(cell);
+        cells[r][c] = cell;
+      }
+    }
+  }
+
+  function reset() {
+    started = false;
+    gameOver = false;
+    flagsPlaced = 0;
+    revealedCount = 0;
+    timer = 0;
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    mineCountEl.textContent = MINE_COUNT;
+    timerEl.textContent = "0";
+    overlay.classList.remove("show", "win");
+    buildGrid();
+  }
+
+  // 放置地雷(避开首次点击位置及其周围8格,保证首点必为空区)
+  function placeMines(safeR, safeC) {
+    var placed = 0;
+    while (placed < MINE_COUNT) {
+      var r = Math.floor(Math.random() * ROWS);
+      var c = Math.floor(Math.random() * COLS);
+      if (board[r][c].mine) continue;
+      if (Math.abs(r - safeR) <= 1 && Math.abs(c - safeC) <= 1) continue;
+      board[r][c].mine = true;
+      placed++;
+    }
+    // 计算每格周围雷数
+    for (var rr = 0; rr < ROWS; rr++) {
+      for (var cc = 0; cc < COLS; cc++) {
+        if (board[rr][cc].mine) continue;
+        var n = 0;
+        for (var dr = -1; dr <= 1; dr++) {
+          for (var dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            var nr = rr + dr, nc = cc + dc;
+            if (nr < 0 || nc < 0 || nr >= ROWS || nc >= COLS) continue;
+            if (board[nr][nc].mine) n++;
+          }
+        }
+        board[rr][cc].count = n;
+      }
+    }
+  }
+
+  // ---------- 计时 ----------
+  function startTimer() {
+    if (timerInterval) return;
+    timerInterval = setInterval(function () {
+      timer++;
+      timerEl.textContent = timer;
+    }, 1000);
+  }
+
+  function stopTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  }
+
+  // ---------- 揭开(含 flood fill) ----------
+  function reveal(r, c) {
+    if (gameOver) return;
+    var cell = board[r][c];
+    if (cell.revealed || cell.flagged) return;
+    cell.revealed = true;
+    revealedCount++;
+
+    var el = cells[r][c];
+    el.classList.add("revealed");
+
+    if (cell.mine) {
+      el.classList.add("mine", "exploded");
+      loseGame();
+      return;
+    }
+
+    if (cell.count > 0) {
+      el.classList.add("n" + cell.count);
+      el.textContent = cell.count;
+    } else {
+      // flood fill 周围8格
+      for (var dr = -1; dr <= 1; dr++) {
+        for (var dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          var nr = r + dr, nc = c + dc;
+          if (nr < 0 || nc < 0 || nr >= ROWS || nc >= COLS) continue;
+          reveal(nr, nc);
+        }
+      }
+    }
+
+    checkWin();
+  }
+
+  // ---------- 标记 ----------
+  function toggleFlag(r, c) {
+    if (gameOver) return;
+    var cell = board[r][c];
+    if (cell.revealed) return;
+    cell.flagged = !cell.flagged;
+    var el = cells[r][c];
+    if (cell.flagged) {
+      el.classList.add("flagged");
+      flagsPlaced++;
+    } else {
+      el.classList.remove("flagged");
+      flagsPlaced--;
+    }
+    mineCountEl.textContent = MINE_COUNT - flagsPlaced;
+  }
+
+  // ---------- 胜负 ----------
+  function checkWin() {
+    if (revealedCount === ROWS * COLS - MINE_COUNT) {
+      winGame();
+    }
+  }
+
+  function winGame() {
+    gameOver = true;
+    stopTimer();
+    // 自动标记所有未标记的雷
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        if (board[r][c].mine && !board[r][c].flagged) {
+          board[r][c].flagged = true;
+          cells[r][c].classList.add("flagged");
+        }
+      }
+    }
+    mineCountEl.textContent = 0;
+    showOverlay(true);
+  }
+
+  function loseGame() {
+    gameOver = true;
+    stopTimer();
+    // 揭开所有雷
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        if (board[r][c].mine) {
+          var el = cells[r][c];
+          el.classList.remove("flagged");
+          el.classList.add("revealed", "mine");
+        }
+      }
+    }
+    showOverlay(false);
+  }
+
+  function showOverlay(isWin) {
+    finalTimeEl.textContent = timer;
+    if (isWin) {
+      overlayTitle.textContent = "你赢了";
+      overlay.classList.add("win");
+    } else {
+      overlayTitle.textContent = "游戏结束";
+      overlay.classList.remove("win");
+    }
+    overlay.classList.add("show");
+  }
+
+  // ---------- 首次交互初始化 ----------
+  function ensureStarted(r, c) {
+    if (!started) {
+      started = true;
+      placeMines(r, c);
+      startTimer();
+    }
+  }
+
+  // ---------- 输入 ----------
+  var suppressClick = false;
+  var pressTimer = null;
+
+  // 左键揭开
+  gridEl.addEventListener("click", function (e) {
+    if (suppressClick) { suppressClick = false; return; }
+    var cell = e.target.closest(".cell");
+    if (!cell || gameOver) return;
+    var r = +cell.dataset.r;
+    var c = +cell.dataset.c;
+    ensureStarted(r, c);
+    reveal(r, c);
+  });
+
+  // 右键标记
+  gridEl.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+    var cell = e.target.closest(".cell");
+    if (!cell || gameOver) return;
+    var r = +cell.dataset.r;
+    var c = +cell.dataset.c;
+    ensureStarted(r, c);
+    toggleFlag(r, c);
+  });
+
+  // 长按标记(移动端)
+  gridEl.addEventListener("touchstart", function (e) {
+    var cell = e.target.closest(".cell");
+    if (!cell) return;
+    var r = +cell.dataset.r;
+    var c = +cell.dataset.c;
+    pressTimer = setTimeout(function () {
+      suppressClick = true;
+      ensureStarted(r, c);
+      toggleFlag(r, c);
+      if (navigator.vibrate) navigator.vibrate(30);
+    }, 400);
+  }, { passive: true });
+
+  gridEl.addEventListener("touchmove", function () {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    suppressClick = true;
+  }, { passive: true });
+
+  gridEl.addEventListener("touchend", function () {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  });
+
+  gridEl.addEventListener("touchcancel", function () {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  });
+
+  // ---------- 按钮 ----------
+  function restart() {
+    reset();
+  }
+
+  overlayBtn.addEventListener("click", restart);
+  restartBtn.addEventListener("click", restart);
+
+  // ---------- 启动 ----------
+  reset();
+})();
+</script>
+</body>
+</html>

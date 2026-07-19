@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>羊了个羊</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; }
+  .ui-bar { width: 100%; max-width: 500px; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .level-box { font-size: 20px; font-weight: bold; color: #4ade80; }
+  .btn { padding: 8px 20px; font-size: 14px; font-weight: bold; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:active { transform: scale(0.95); }
+  #game-board { width: 100%; max-width: 500px; flex: 1; display: flex; flex-wrap: wrap; justify-content: center; align-content: flex-start; padding: 10px; gap: 2px; overflow-y: auto; position: relative; }
+  .tile { width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; font-size: 28px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; cursor: pointer; transition: all 0.2s; position: absolute; }
+  .tile:hover:not(.blocked) { transform: translateY(-3px); border-color: rgba(59, 130, 246, 0.8); }
+  .tile.selected { border-color: #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.5); transform: translateY(-3px); }
+  .tile.blocked { opacity: 0.5; cursor: not-allowed; }
+  .tile.layer-1 { z-index: 1; }
+  .tile.layer-2 { z-index: 2; }
+  .tile.layer-3 { z-index: 3; }
+  #slot-bar { width: 100%; max-width: 500px; height: 70px; background: rgba(255,255,255,0.1); border-radius: 10px; margin: 10px; display: flex; justify-content: center; align-items: center; gap: 5px; padding: 5px; }
+  .slot { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center; font-size: 28px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); border-radius: 8px; transition: all 0.2s; }
+  .slot.filled { border-color: #3b82f6; background: rgba(59, 130, 246, 0.2); }
+  .game-over { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px; text-align: center; display: none; z-index: 100; border: 2px solid #6366f1; }
+  .game-over h2 { margin-bottom: 10px; font-size: 32px; }
+  .game-over .win { color: #4ade80; }
+  .game-over .lose { color: #ef4444; }
+  .game-over .final-score { font-size: 36px; color: #fff; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="level-box">关卡 1</div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+  </div>
+  <div id="game-board"></div>
+  <div id="slot-bar">
+    <div class="slot" id="slot0"></div>
+    <div class="slot" id="slot1"></div>
+    <div class="slot" id="slot2"></div>
+    <div class="slot" id="slot3"></div>
+    <div class="slot" id="slot4"></div>
+    <div class="slot" id="slot5"></div>
+    <div class="slot" id="slot6"></div>
+  </div>
+</div>
+
+<div class="game-over" id="gameOver">
+  <h2 id="resultText" class="lose">😢 游戏结束！</h2>
+  <div class="final-score" id="finalScore">已消除 0 组</div>
+  <button class="btn" id="restartBtn">再来一局</button>
+</div>
+
+<script>
+(function() {
+  var boardEl = document.getElementById('game-board');
+  var slotBar = document.getElementById('slot-bar');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var gameOverEl = document.getElementById('gameOver');
+  var resultText = document.getElementById('resultText');
+  var finalScoreEl = document.getElementById('finalScore');
+  var restartBtn = document.getElementById('restartBtn');
+  
+  var ITEMS = ['🐑', '🐄', '🐖', '🐔', '🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯'];
+  var SLOT_CAPACITY = 7;
+  var TILE_SIZE = 54;
+  var LAYER_OFFSET = 4;
+  
+  var tiles = [];
+  var slots = [];
+  var matchedCount = 0;
+  var gameOver = false;
+  
+  function initGame() {
+    tiles = [];
+    slots = [];
+    matchedCount = 0;
+    gameOver = false;
+    gameOverEl.style.display = 'none';
+    updateSlots();
+    generateLevel();
+    renderBoard();
+  }
+  
+  function generateLevel() {
+    var totalTiles = 81;
+    var tileTypes = [];
+    
+    var pairCount = Math.floor(totalTiles / 3);
+    var remainder = totalTiles % 3;
+    
+    for (var i = 0; i < pairCount; i++) {
+      var item = ITEMS[i % ITEMS.length];
+      tileTypes.push(item, item, item);
+    }
+    
+    for (var i = 0; i < remainder; i++) {
+      tileTypes.push(ITEMS[(pairCount + i) % ITEMS.length]);
+    }
+    
+    for (var i = tileTypes.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = tileTypes[i];
+      tileTypes[i] = tileTypes[j];
+      tileTypes[j] = temp;
+    }
+    
+    var layouts = [
+      { rows: 9, cols: 9, offset: 0 },
+      { rows: 7, cols: 7, offset: 1 },
+      { rows: 5, cols: 5, offset: 2 },
+    ];
+    
+    var typeIndex = 0;
+    
+    for (var layer = 0; layer < layouts.length; layer++) {
+      var layout = layouts[layer];
+      for (var r = 0; r < layout.rows; r++) {
+        for (var c = 0; c < layout.cols; c++) {
+          tiles.push({
+            id: layer * 1000 + r * 100 + c,
+            item: tileTypes[typeIndex++],
+            row: r + layout.offset,
+            col: c + layout.offset,
+            layer: layer,
+            removed: false
+          });
+        }
+      }
+    }
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    
+    for (var i = 0; i < tiles.length; i++) {
+      var tile = tiles[i];
+      if (tile.removed) continue;
+      
+      var el = document.createElement('div');
+      el.className = 'tile layer-' + (tile.layer + 1);
+      el.dataset.id = tile.id;
+      el.textContent = tile.item;
+      
+      var left = tile.col * TILE_SIZE + tile.layer * LAYER_OFFSET;
+      var top = tile.row * TILE_SIZE + tile.layer * LAYER_OFFSET;
+      
+      el.style.left = left + 'px';
+      el.style.top = top + 'px';
+      
+      if (!isTileClickable(tile)) {
+        el.classList.add('blocked');
+      }
+      
+      el.addEventListener('click', function() {
+        onTileClick(parseInt(this.dataset.id));
+      });
+      
+      boardEl.appendChild(el);
+    }
+  }
+  
+  function isTileClickable(tile) {
+    for (var i = 0; i < tiles.length; i++) {
+      var other = tiles[i];
+      if (other.removed) continue;
+      if (other.layer <= tile.layer) continue;
+      
+      var rowOverlap = Math.abs(other.row - tile.row) < 1;
+      var colOverlap = Math.abs(other.col - tile.col) < 1;
+      
+      if (rowOverlap && colOverlap) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  function onTileClick(id) {
+    if (gameOver) return;
+    
+    var tile = tiles.find(function(t) { return t.id === id; });
+    if (!tile || tile.removed) return;
+    if (!isTileClickable(tile)) return;
+    
+    if (slots.length >= SLOT_CAPACITY) return;
+    
+    tile.removed = true;
+    slots.push(tile.item);
+    
+    checkMatch();
+    updateSlots();
+    renderBoard();
+    checkGameOver();
+  }
+  
+  function checkMatch() {
+    for (var i = slots.length - 3; i >= 0; i--) {
+      if (slots[i] === slots[i + 1] && slots[i] === slots[i + 2]) {
+        slots.splice(i, 3);
+        matchedCount++;
+        checkMatch();
+        return;
+      }
+    }
+  }
+  
+  function updateSlots() {
+    for (var i = 0; i < SLOT_CAPACITY; i++) {
+      var slot = document.getElementById('slot' + i);
+      slot.textContent = slots[i] || '';
+      if (i < slots.length) {
+        slot.classList.add('filled');
+      } else {
+        slot.classList.remove('filled');
+      }
+    }
+  }
+  
+  function checkGameOver() {
+    if (slots.length >= SLOT_CAPACITY) {
+      gameOver = true;
+      resultText.className = 'lose';
+      resultText.textContent = '😢 游戏结束！';
+      finalScoreEl.textContent = '已消除 ' + matchedCount + ' 组';
+      gameOverEl.style.display = 'block';
+      return;
+    }
+    
+    var remainingTiles = tiles.filter(function(t) { return !t.removed; });
+    if (remainingTiles.length === 0) {
+      gameOver = true;
+      resultText.className = 'win';
+      resultText.textContent = '🎉 恭喜过关！';
+      finalScoreEl.textContent = '已消除 ' + matchedCount + ' 组';
+      gameOverEl.style.display = 'block';
+      return;
+    }
+    
+    var clickableTiles = remainingTiles.filter(function(t) { return isTileClickable(t); });
+    if (clickableTiles.length === 0) {
+      gameOver = true;
+      resultText.className = 'lose';
+      resultText.textContent = '😢 没有可点击的方块了！';
+      finalScoreEl.textContent = '已消除 ' + matchedCount + ' 组';
+      gameOverEl.style.display = 'block';
+      return;
+    }
+  }
+  
+  newGameBtn.addEventListener('click', initGame);
+  restartBtn.addEventListener('click', initGame);
+  
+  initGame();
+})();
+</script>
+</body>
+</html>
