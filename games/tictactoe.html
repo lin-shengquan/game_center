@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>井字棋</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  body {
+    background: #0f0f23;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 12px;
+  }
+
+  .wrap {
+    width: 100%;
+    max-width: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .title {
+    font-size: 40px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 1px;
+    line-height: 1;
+  }
+
+  /* Difficulty */
+  .diff {
+    display: flex;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .diff-btn {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .diff-btn.active {
+    background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%);
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(166, 85, 247, 0.35);
+  }
+
+  /* Status */
+  .status {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    min-height: 24px;
+    color: rgba(255, 255, 255, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .status .turn-mark {
+    font-size: 18px;
+    font-weight: 800;
+  }
+  .status .x-mark { color: #06b6d4; }
+  .status .o-mark { color: #a855f7; }
+
+  /* Board */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 8px;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    max-width: 360px;
+    margin: 0 auto;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+  }
+
+  .cell {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 56px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.18s ease, transform 0.12s ease;
+    position: relative;
+  }
+
+  .cell:hover:not(.filled):not(.disabled) {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .cell:active:not(.filled):not(.disabled) {
+    transform: scale(0.96);
+  }
+
+  .cell.disabled {
+    cursor: default;
+  }
+
+  .cell .mark {
+    display: inline-block;
+    animation: pop 0.18s ease-out;
+  }
+
+  .cell.x .mark { color: #06b6d4; }
+  .cell.o .mark { color: #a855f7; }
+
+  .cell.win {
+    background: rgba(255, 255, 255, 0.18);
+    box-shadow: 0 0 18px rgba(255, 255, 255, 0.25);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes pop {
+    0% { transform: scale(0.4); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(255, 255, 255, 0.15); }
+    50% { box-shadow: 0 0 26px rgba(255, 255, 255, 0.4); }
+  }
+
+  /* Score */
+  .score {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .score-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px 6px;
+    text-align: center;
+  }
+
+  .score-card .label {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 4px;
+    letter-spacing: 1px;
+  }
+
+  .score-card .value {
+    font-size: 24px;
+    font-weight: 800;
+  }
+
+  .score-card.win .value { color: #06b6d4; }
+  .score-card.lose .value { color: #a855f7; }
+  .score-card.draw .value { color: rgba(255, 255, 255, 0.7); }
+
+  /* Result banner */
+  .result {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 800;
+    min-height: 30px;
+    letter-spacing: 1px;
+  }
+  .result.win { color: #06b6d4; }
+  .result.lose { color: #a855f7; }
+  .result.draw { color: rgba(255, 255, 255, 0.75); }
+
+  /* Restart */
+  .actions {
+    display: flex;
+    justify-content: center;
+  }
+
+  .btn {
+    border: none;
+    background: linear-gradient(135deg, #06b6d4 0%, #a855f7 100%);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 11px 30px;
+    border-radius: 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    font-family: inherit;
+    box-shadow: 0 4px 14px rgba(166, 85, 247, 0.3);
+    transition: transform 0.12s ease, box-shadow 0.18s ease;
+  }
+
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(166, 85, 247, 0.42); }
+  .btn:active { transform: translateY(0) scale(0.98); }
+
+  @media (max-width: 360px) {
+    .title { font-size: 32px; }
+    .cell { font-size: 46px; }
+    .score-card .value { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="title">井字棋</div>
+      <div class="diff">
+        <button class="diff-btn active" data-diff="easy">简单</button>
+        <button class="diff-btn" data-diff="hard">困难</button>
+      </div>
+    </div>
+
+    <div class="status" id="status">
+      <span>你的回合</span>
+      <span class="turn-mark x-mark">X</span>
+    </div>
+
+    <div class="board" id="board"></div>
+
+    <div class="score">
+      <div class="score-card win">
+        <div class="label">胜</div>
+        <div class="value" id="wins">0</div>
+      </div>
+      <div class="score-card lose">
+        <div class="label">负</div>
+        <div class="value" id="losses">0</div>
+      </div>
+      <div class="score-card draw">
+        <div class="label">平</div>
+        <div class="value" id="draws">0</div>
+      </div>
+    </div>
+
+    <div class="result" id="result"></div>
+
+    <div class="actions">
+      <button class="btn" id="restart">重新开始</button>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const HUMAN = "X";
+  const AI = "O";
+  const WIN_LINES = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // cols
+    [0, 4, 8], [2, 4, 6]             // diagonals
+  ];
+
+  const state = {
+    board: Array(9).fill(null),
+    difficulty: "easy",
+    locked: false,
+    scores: { wins: 0, losses: 0, draws: 0 }
+  };
+
+  const boardEl = document.getElementById("board");
+  const statusEl = document.getElementById("status");
+  const resultEl = document.getElementById("result");
+  const winsEl = document.getElementById("wins");
+  const lossesEl = document.getElementById("losses");
+  const drawsEl = document.getElementById("draws");
+  const restartBtn = document.getElementById("restart");
+  const diffBtns = document.querySelectorAll(".diff-btn");
+
+  // Build cells
+  function buildBoard() {
+    boardEl.innerHTML = "";
+    for (let i = 0; i < 9; i++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.dataset.index = i;
+      cell.addEventListener("click", onCellClick);
+      boardEl.appendChild(cell);
+    }
+  }
+
+  function renderBoard() {
+    const cells = boardEl.children;
+    for (let i = 0; i < 9; i++) {
+      const cell = cells[i];
+      const val = state.board[i];
+      cell.classList.remove("x", "o", "filled", "win", "disabled");
+      if (val) {
+        cell.classList.add("filled", val.toLowerCase());
+        cell.innerHTML = '<span class="mark">' + val + "</span>";
+      } else {
+        cell.innerHTML = "";
+        if (state.locked) cell.classList.add("disabled");
+      }
+    }
+  }
+
+  function highlightWin(line) {
+    const cells = boardEl.children;
+    line.forEach(function (i) {
+      cells[i].classList.add("win");
+    });
+  }
+
+  function setStatus(text, mark) {
+    if (mark) {
+      const cls = mark === HUMAN ? "x-mark" : "o-mark";
+      statusEl.innerHTML = text + ' <span class="turn-mark ' + cls + '">' + mark + "</span>";
+    } else {
+      statusEl.textContent = text;
+    }
+  }
+
+  function setResult(text, kind) {
+    resultEl.textContent = text;
+    resultEl.className = "result " + kind;
+  }
+
+  function updateScores() {
+    winsEl.textContent = state.scores.wins;
+    lossesEl.textContent = state.scores.losses;
+    drawsEl.textContent = state.scores.draws;
+  }
+
+  // Returns { winner: 'X'|'O', line: [...] } or null
+  function checkWinner(b) {
+    for (let i = 0; i < WIN_LINES.length; i++) {
+      const line = WIN_LINES[i];
+      const [a, b1, c] = line;
+      if (b[a] && b[a] === b[b1] && b[a] === b[c]) {
+        return { winner: b[a], line: line };
+      }
+    }
+    return null;
+  }
+
+  function isFull(b) {
+    return b.every(function (v) { return v !== null; });
+  }
+
+  // ---------- AI ----------
+  function emptyIndices(b) {
+    const arr = [];
+    for (let i = 0; i < 9; i++) if (!b[i]) arr.push(i);
+    return arr;
+  }
+
+  function randomMove(b) {
+    const empties = emptyIndices(b);
+    if (!empties.length) return -1;
+    return empties[Math.floor(Math.random() * empties.length)];
+  }
+
+  // Minimax: AI is the maximizing player (O), human minimizing (X)
+  function minimax(b, isMaximizing) {
+    const result = checkWinner(b);
+    if (result) {
+      return result.winner === AI ? 10 : -10;
+    }
+    if (isFull(b)) return 0;
+
+    if (isMaximizing) {
+      let best = -Infinity;
+      const empties = emptyIndices(b);
+      for (let i = 0; i < empties.length; i++) {
+        const idx = empties[i];
+        b[idx] = AI;
+        const score = minimax(b, false);
+        b[idx] = null;
+        if (score > best) best = score;
+      }
+      return best;
+    } else {
+      let best = Infinity;
+      const empties = emptyIndices(b);
+      for (let i = 0; i < empties.length; i++) {
+        const idx = empties[i];
+        b[idx] = HUMAN;
+        const score = minimax(b, true);
+        b[idx] = null;
+        if (score < best) best = score;
+      }
+      return best;
+    }
+  }
+
+  function bestMove(b) {
+    let bestScore = -Infinity;
+    let move = -1;
+    const empties = emptyIndices(b);
+    for (let i = 0; i < empties.length; i++) {
+      const idx = empties[i];
+      b[idx] = AI;
+      const score = minimax(b, false);
+      b[idx] = null;
+      if (score > bestScore) {
+        bestScore = score;
+        move = idx;
+      }
+    }
+    return move;
+  }
+
+  function aiMove() {
+    let move;
+    if (state.difficulty === "hard") {
+      move = bestMove(state.board);
+    } else {
+      move = randomMove(state.board);
+    }
+    if (move >= 0) {
+      state.board[move] = AI;
+      renderBoard();
+      const win = checkWinner(state.board);
+      if (win) {
+        endGame("lose", win);
+      } else if (isFull(state.board)) {
+        endGame("draw", null);
+      } else {
+        state.locked = false;
+        setStatus("你的回合", HUMAN);
+      }
+    }
+  }
+
+  // ---------- Gameplay ----------
+  function onCellClick(e) {
+    if (state.locked) return;
+    const idx = parseInt(e.currentTarget.dataset.index, 10);
+    if (state.board[idx] !== null) return;
+
+    state.board[idx] = HUMAN;
+    renderBoard();
+
+    const win = checkWinner(state.board);
+    if (win) {
+      endGame("win", win);
+      return;
+    }
+    if (isFull(state.board)) {
+      endGame("draw", null);
+      return;
+    }
+
+    state.locked = true;
+    setStatus("电脑回合", AI);
+    // Slight delay so the AI move feels natural
+    setTimeout(aiMove, 320);
+  }
+
+  function endGame(outcome, winInfo) {
+    state.locked = true;
+    if (winInfo) highlightWin(winInfo.line);
+
+    if (outcome === "win") {
+      state.scores.wins++;
+      setResult("你赢了", "win");
+      setStatus("游戏结束", "");
+    } else if (outcome === "lose") {
+      state.scores.losses++;
+      setResult("你输了", "lose");
+      setStatus("游戏结束", "");
+    } else {
+      state.scores.draws++;
+      setResult("平局", "draw");
+      setStatus("游戏结束", "");
+    }
+    updateScores();
+    renderBoard();
+  }
+
+  function resetGame() {
+    state.board = Array(9).fill(null);
+    state.locked = false;
+    resultEl.textContent = "";
+    resultEl.className = "result";
+    setStatus("你的回合", HUMAN);
+    renderBoard();
+  }
+
+  restartBtn.addEventListener("click", resetGame);
+
+  diffBtns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      diffBtns.forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      state.difficulty = btn.dataset.diff;
+      resetGame();
+    });
+  });
+
+  // Init
+  buildBoard();
+  renderBoard();
+  updateScores();
+})();
+</script>
+</body>
+</html>

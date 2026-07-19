@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>迷宫 - Maze</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #maze-canvas { border: 4px solid #6366f1; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .ui-bar { margin-top: 20px; display: flex; gap: 20px; align-items: center; }
+  .level-box, .steps-box { text-align: center; }
+  .level-box .label, .steps-box .label { font-size: 14px; color: #888; }
+  .level-box .value, .steps-box .value { font-size: 24px; font-weight: bold; color: #4ade80; }
+  .btn { padding: 10px 20px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6); }
+  .btn:active { transform: scale(0.95); }
+  .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+  .control-btn { width: 60px; height: 60px; font-size: 24px; background: #4a4a6a; border-radius: 10px; border: none; color: #fff; cursor: pointer; transition: all 0.2s; }
+  .control-btn:hover { background: #5a5a8a; }
+  .control-btn:active { background: #6366f1; transform: scale(0.95); }
+  .control-btn.up { grid-column: 2; grid-row: 1; }
+  .control-btn.left { grid-column: 1; grid-row: 2; }
+  .control-btn.down { grid-column: 2; grid-row: 2; }
+  .control-btn.right { grid-column: 3; grid-row: 2; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.95); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; border: 2px solid #6366f1; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="level-box">
+      <div class="label">关卡</div>
+      <div class="value" id="level">1</div>
+    </div>
+    <div class="steps-box">
+      <div class="label">步数</div>
+      <div class="value" id="steps">0</div>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+    <button class="btn" id="nextLevelBtn">下一关</button>
+  </div>
+  <canvas id="maze-canvas" width="400" height="400"></canvas>
+  <div class="controls">
+    <button class="control-btn up">↑</button>
+    <button class="control-btn left">←</button>
+    <button class="control-btn down">↓</button>
+    <button class="control-btn right">→</button>
+  </div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2>🎉 恭喜过关！</h2>
+  <button class="btn" id="nextLevelWinBtn">下一关</button>
+</div>
+
+<script>
+(function() {
+  var canvas = document.getElementById('maze-canvas');
+  var ctx = canvas.getContext('2d');
+  var levelEl = document.getElementById('level');
+  var stepsEl = document.getElementById('steps');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var nextLevelBtn = document.getElementById('nextLevelBtn');
+  var winMessage = document.getElementById('winMessage');
+  var nextLevelWinBtn = document.getElementById('nextLevelWinBtn');
+  
+  var CELL_SIZE = 20;
+  var COLS = canvas.width / CELL_SIZE;
+  var ROWS = canvas.height / CELL_SIZE;
+  
+  var level = 1;
+  var steps = 0;
+  var player = { r: 1, c: 1 };
+  var end = { r: ROWS - 2, c: COLS - 2 };
+  var maze = [];
+  
+  function initGame(lvl) {
+    level = lvl || 1;
+    steps = 0;
+    levelEl.textContent = level;
+    stepsEl.textContent = steps;
+    winMessage.style.display = 'none';
+    
+    generateMaze();
+    player = { r: 1, c: 1 };
+    end = { r: ROWS - 2, c: COLS - 2 };
+    draw();
+  }
+  
+  function generateMaze() {
+    maze = [];
+    for (var r = 0; r < ROWS; r++) {
+      maze[r] = [];
+      for (var c = 0; c < COLS; c++) {
+        maze[r][c] = 1;
+      }
+    }
+    
+    var stack = [{ r: 1, c: 1 }];
+    maze[1][1] = 0;
+    
+    var directions = [
+      { dr: -2, dc: 0 },
+      { dr: 2, dc: 0 },
+      { dr: 0, dc: -2 },
+      { dr: 0, dc: 2 }
+    ];
+    
+    while (stack.length > 0) {
+      var current = stack[stack.length - 1];
+      var neighbors = [];
+      
+      for (var i = 0; i < directions.length; i++) {
+        var nr = current.r + directions[i].dr;
+        var nc = current.c + directions[i].dc;
+        
+        if (nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1 && maze[nr][nc] === 1) {
+          neighbors.push({ dr: directions[i].dr, dc: directions[i].dc });
+        }
+      }
+      
+      if (neighbors.length > 0) {
+        var next = neighbors[Math.floor(Math.random() * neighbors.length)];
+        maze[current.r + next.dr / 2][current.c + next.dc / 2] = 0;
+        maze[current.r + next.dr][current.c + next.dc] = 0;
+        stack.push({ r: current.r + next.dr, c: current.c + next.dc });
+      } else {
+        stack.pop();
+      }
+    }
+    
+    for (var r = 0; r < ROWS; r++) {
+      maze[r][0] = 1;
+      maze[r][COLS - 1] = 1;
+    }
+    for (var c = 0; c < COLS; c++) {
+      maze[0][c] = 1;
+      maze[ROWS - 1][c] = 1;
+    }
+    
+    maze[ROWS - 2][COLS - 2] = 0;
+    
+    addExtraWalls();
+  }
+  
+  function addExtraWalls() {
+    var extraWalls = Math.min(level * 2, 15);
+    var attempts = 0;
+    
+    while (extraWalls > 0 && attempts < 200) {
+      var wr = Math.floor(Math.random() * (ROWS - 4)) + 2;
+      var wc = Math.floor(Math.random() * (COLS - 4)) + 2;
+      
+      if (maze[wr][wc] === 0 && !(wr === 1 && wc === 1) && !(wr === ROWS - 2 && wc === COLS - 2)) {
+        maze[wr][wc] = 1;
+        
+        if (hasPath()) {
+          extraWalls--;
+        } else {
+          maze[wr][wc] = 0;
+        }
+      }
+      attempts++;
+    }
+  }
+  
+  function hasPath() {
+    var visited = [];
+    for (var r = 0; r < ROWS; r++) {
+      visited[r] = [];
+      for (var c = 0; c < COLS; c++) {
+        visited[r][c] = false;
+      }
+    }
+    
+    var queue = [{ r: 1, c: 1 }];
+    visited[1][1] = true;
+    
+    while (queue.length > 0) {
+      var current = queue.shift();
+      
+      if (current.r === ROWS - 2 && current.c === COLS - 2) {
+        return true;
+      }
+      
+      var directions = [{ dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }];
+      for (var i = 0; i < directions.length; i++) {
+        var nr = current.r + directions[i].dr;
+        var nc = current.c + directions[i].dc;
+        
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !visited[nr][nc] && maze[nr][nc] === 0) {
+          visited[nr][nc] = true;
+          queue.push({ r: nr, c: nc });
+        }
+      }
+    }
+    
+    return false;
+  }
+  
+  function draw() {
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        if (maze[r][c] === 1) {
+          ctx.fillStyle = '#4a4a6a';
+          ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+          
+          ctx.strokeStyle = '#3a3a5a';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        } else {
+          ctx.fillStyle = '#2a2a4a';
+          ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+        }
+      }
+    }
+    
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(end.c * CELL_SIZE + CELL_SIZE / 2, end.r * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE / 2 - 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.fillStyle = '#4ade80';
+    ctx.beginPath();
+    ctx.arc(player.c * CELL_SIZE + CELL_SIZE / 2, player.r * CELL_SIZE + CELL_SIZE / 2, CELL_SIZE / 2 - 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.strokeStyle = '#6366f1';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(player.c * CELL_SIZE + 2, player.r * CELL_SIZE + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+  }
+  
+  function movePlayer(dr, dc) {
+    var nr = player.r + dr;
+    var nc = player.c + dc;
+    
+    if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && maze[nr][nc] === 0) {
+      player.r = nr;
+      player.c = nc;
+      steps++;
+      stepsEl.textContent = steps;
+      draw();
+      checkWin();
+    }
+  }
+  
+  function checkWin() {
+    if (player.r === end.r && player.c === end.c) {
+      winMessage.style.display = 'block';
+    }
+  }
+  
+  function handleKeyDown(e) {
+    switch (e.key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        e.preventDefault();
+        movePlayer(-1, 0);
+        break;
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        e.preventDefault();
+        movePlayer(1, 0);
+        break;
+      case 'ArrowLeft':
+      case 'a':
+      case 'A':
+        e.preventDefault();
+        movePlayer(0, -1);
+        break;
+      case 'ArrowRight':
+      case 'd':
+      case 'D':
+        e.preventDefault();
+        movePlayer(0, 1);
+        break;
+    }
+  }
+  
+  document.addEventListener('keydown', handleKeyDown);
+  
+  document.querySelector('.control-btn.up').addEventListener('click', function() { movePlayer(-1, 0); });
+  document.querySelector('.control-btn.down').addEventListener('click', function() { movePlayer(1, 0); });
+  document.querySelector('.control-btn.left').addEventListener('click', function() { movePlayer(0, -1); });
+  document.querySelector('.control-btn.right').addEventListener('click', function() { movePlayer(0, 1); });
+  
+  newGameBtn.addEventListener('click', function() { initGame(1); });
+  nextLevelBtn.addEventListener('click', function() { initGame(level + 1); });
+  nextLevelWinBtn.addEventListener('click', function() { initGame(level + 1); });
+  
+  initGame();
+})();
+</script>
+</body>
+</html>

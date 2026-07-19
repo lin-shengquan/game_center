@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>打地鼠 - Whac-a-Mole</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+  #game-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; padding: 20px; }
+  .hole { width: 100px; height: 100px; background: linear-gradient(180deg, #4a3728 0%, #2d2016 100%); border-radius: 50%; position: relative; overflow: hidden; cursor: pointer; box-shadow: inset 0 10px 20px rgba(0,0,0,0.5), 0 4px 10px rgba(0,0,0,0.3); transition: transform 0.1s; }
+  .hole:active { transform: scale(0.95); }
+  .hole::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 25px; background: linear-gradient(180deg, #3d2914 0%, #2a1d0f 100%); border-radius: 0 0 50% 50%; }
+  .mole { width: 80px; height: 80px; position: absolute; bottom: -80px; left: 10px; transition: bottom 0.15s ease-out; display: flex; align-items: center; justify-content: center; font-size: 50px; }
+  .mole.active { bottom: 5px; }
+  .mole.hit { animation: hitAnim 0.3s ease-out; }
+  .mole.golden { animation: goldenGlow 1s infinite; }
+  .mole.special { animation: rainbowGlow 0.5s infinite; }
+  @keyframes hitAnim { 0% { transform: scale(1); } 50% { transform: scale(0.8) rotate(-10deg); } 100% { transform: scale(1) translateY(-80px); } }
+  @keyframes goldenGlow { 0%, 100% { filter: drop-shadow(0 0 5px #ffd700); } 50% { filter: drop-shadow(0 0 15px #ffd700); } }
+  @keyframes rainbowGlow { 0% { filter: drop-shadow(0 0 5px #ff0000); } 25% { filter: drop-shadow(0 0 5px #00ff00); } 50% { filter: drop-shadow(0 0 5px #0000ff); } 75% { filter: drop-shadow(0 0 5px #ffff00); } 100% { filter: drop-shadow(0 0 5px #ff0000); } }
+  .ui-bar { margin-bottom: 15px; display: flex; gap: 25px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .score-box, .time-box, .combo-box { text-align: center; }
+  .score-box .label, .time-box .label, .combo-box .label { font-size: 12px; color: #888; }
+  .score-box .value { font-size: 42px; font-weight: bold; background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .time-box .value { font-size: 36px; font-weight: bold; color: #4ade80; }
+  .time-box .value.warning { color: #f59e0b; animation: pulse 0.5s infinite; }
+  .time-box .value.danger { color: #ef4444; animation: pulse 0.3s infinite; }
+  .combo-box .value { font-size: 20px; color: #fbbf24; font-weight: bold; }
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+  .btn { padding: 10px 30px; font-size: 18px; font-weight: bold; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 25px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6); }
+  .btn:active { transform: scale(0.95); }
+  .game-over { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px; text-align: center; display: none; z-index: 100; border: 2px solid #6366f1; }
+  .game-over h2 { color: #4ade80; margin-bottom: 10px; font-size: 32px; }
+  .game-over .final-score { font-size: 56px; font-weight: bold; background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 20px; }
+  .game-over .stats { color: #888; margin-bottom: 20px; font-size: 14px; }
+  .score-popup { position: absolute; font-size: 24px; font-weight: bold; color: #4ade80; pointer-events: none; animation: floatUp 0.8s ease-out forwards; z-index: 50; }
+  .score-popup.bonus { color: #fbbf24; font-size: 32px; }
+  .score-popup.special { color: #a855f7; font-size: 36px; }
+  @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-50px) scale(1.2); } }
+  .hammer { position: absolute; width: 60px; height: 60px; font-size: 40px; pointer-events: none; z-index: 200; display: none; }
+  .hammer.swing { animation: swingAnim 0.15s ease-out; }
+  @keyframes swingAnim { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(-45deg) scale(1.2); } 100% { transform: rotate(0deg) scale(1); } }
+  .combo-effect { position: fixed; top: 30%; left: 50%; transform: translateX(-50%); font-size: 60px; font-weight: bold; color: #fbbf24; pointer-events: none; z-index: 150; display: none; text-shadow: 0 0 20px rgba(251, 191, 36, 0.8); }
+  .combo-effect.show { animation: comboAnim 0.5s ease-out; }
+  @keyframes comboAnim { 0% { opacity: 0; transform: translateX(-50%) scale(0.5); } 30% { opacity: 1; transform: translateX(-50%) scale(1.5); } 100% { opacity: 0; transform: translateX(-50%) scale(2); } }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+  <div class="score-box">
+    <div class="label">得分</div>
+    <div class="value" id="score">0</div>
+  </div>
+  <div class="combo-box">
+    <div class="label">连击</div>
+    <div class="value" id="combo">x1</div>
+  </div>
+  <div class="time-box">
+    <div class="label">时间</div>
+    <div class="value" id="time">60</div>
+  </div>
+  <button class="btn" id="startBtn">开始游戏</button>
+</div>
+  <div id="game-board">
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+    <div class="hole"><div class="mole">🐹</div></div>
+  </div>
+</div>
+
+<div class="game-over" id="gameOver">
+  <h2>🎉 游戏结束！</h2>
+  <div class="final-score" id="finalScore">0</div>
+  <div class="stats" id="stats">击中: 0 | 漏打: 0</div>
+  <button class="btn" id="restartBtn">再来一局</button>
+</div>
+
+<div class="hammer" id="hammer">🔨</div>
+<div class="combo-effect" id="comboEffect">COMBO!</div>
+
+<script>
+(function() {
+  var score = 0;
+  var timeLeft = 60;
+  var combo = 1;
+  var maxCombo = 1;
+  var hits = 0;
+  var misses = 0;
+  var isPlaying = false;
+  var moleInterval = null;
+  var gameInterval = null;
+  var difficulty = 1;
+  var audioContext = null;
+  
+  var scoreEl = document.getElementById('score');
+  var timeEl = document.getElementById('time');
+  var comboEl = document.getElementById('combo');
+  var startBtn = document.getElementById('startBtn');
+  var gameOverEl = document.getElementById('gameOver');
+  var finalScoreEl = document.getElementById('finalScore');
+  var statsEl = document.getElementById('stats');
+  var restartBtn = document.getElementById('restartBtn');
+  var holes = document.querySelectorAll('.hole');
+  var moles = document.querySelectorAll('.mole');
+  var hammer = document.getElementById('hammer');
+  var comboEffect = document.getElementById('comboEffect');
+  
+  var moleTypes = [
+    { emoji: '🐹', points: 10, name: 'normal' },
+    { emoji: '🐭', points: 15, name: 'quick' },
+    { emoji: '🐰', points: 20, name: 'cute' },
+    { emoji: '🌟', points: 30, name: 'golden' },
+    { emoji: '💎', points: 50, name: 'special' }
+  ];
+  
+  function initAudio() {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+  }
+  
+  function playSound(type) {
+    if (!audioContext) return;
+    
+    var oscillator = audioContext.createOscillator();
+    var gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    switch(type) {
+      case 'hit':
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+        break;
+      case 'miss':
+        oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.2);
+        break;
+      case 'golden':
+        oscillator.frequency.setValueAtTime(1200, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(1500, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(2000, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.3);
+        break;
+      case 'combo':
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.3);
+        break;
+    }
+  }
+  
+  function startGame() {
+    initAudio();
+    score = 0;
+    timeLeft = 60;
+    combo = 1;
+    maxCombo = 1;
+    hits = 0;
+    misses = 0;
+    difficulty = 1;
+    isPlaying = true;
+    
+    scoreEl.textContent = score;
+    timeEl.textContent = timeLeft;
+    timeEl.className = 'value';
+    updateCombo();
+    gameOverEl.style.display = 'none';
+    startBtn.textContent = '游戏中...';
+    startBtn.disabled = true;
+    
+    hideAllMoles();
+    
+    gameInterval = setInterval(updateGame, 1000);
+    showRandomMole();
+  }
+  
+  function updateGame() {
+    timeLeft--;
+    timeEl.textContent = timeLeft;
+    
+    if (timeLeft <= 10) {
+      timeEl.classList.add('danger');
+    } else if (timeLeft <= 20) {
+      timeEl.classList.add('warning');
+    }
+    
+    difficulty = Math.floor((60 - timeLeft) / 10) + 1;
+    
+    if (timeLeft <= 0) {
+      endGame();
+    }
+  }
+  
+  function updateCombo() {
+    comboEl.textContent = 'x' + combo;
+    if (combo > 1) {
+      comboEl.style.opacity = 1;
+      comboEl.style.transform = 'scale(' + (1 + combo * 0.1) + ')';
+    } else {
+      comboEl.style.opacity = 0.5;
+      comboEl.style.transform = 'scale(1)';
+    }
+  }
+  
+  function showRandomMole() {
+    if (!isPlaying) return;
+    
+    var availableHoles = [];
+    holes.forEach(function(hole) {
+      var mole = hole.querySelector('.mole');
+      if (!mole.classList.contains('active')) {
+        availableHoles.push(hole);
+      }
+    });
+    
+    if (availableHoles.length > 0) {
+      var randomHole = availableHoles[Math.floor(Math.random() * availableHoles.length)];
+      var mole = randomHole.querySelector('.mole');
+      
+      var rand = Math.random();
+      var moleType;
+      if (rand < 0.05) {
+        moleType = moleTypes[4];
+      } else if (rand < 0.15) {
+        moleType = moleTypes[3];
+      } else if (rand < 0.30) {
+        moleType = moleTypes[2];
+      } else if (rand < 0.50) {
+        moleType = moleTypes[1];
+      } else {
+        moleType = moleTypes[0];
+      }
+      
+      mole.textContent = moleType.emoji;
+      mole.dataset.type = moleType.name;
+      mole.dataset.points = moleType.points;
+      mole.classList.remove('hit', 'golden', 'special');
+      if (moleType.name === 'golden') mole.classList.add('golden');
+      if (moleType.name === 'special') mole.classList.add('special');
+      mole.classList.add('active');
+      
+      var baseTime = 800 - difficulty * 100;
+      var speedFactor = moleType.name === 'quick' ? 0.7 : 1;
+      var showTime = Math.max(200, baseTime * speedFactor + Math.random() * 200);
+      
+      setTimeout(function() {
+        if (mole.classList.contains('active')) {
+          mole.classList.remove('active');
+          if (!mole.classList.contains('hit')) {
+            missMole();
+          }
+        }
+      }, showTime);
+    }
+    
+    var baseDelay = 600 - difficulty * 80;
+    var nextDelay = Math.max(150, baseDelay + Math.random() * 200);
+    
+    var numMoles = Math.min(1 + Math.floor(difficulty / 2), 3);
+    if (numMoles > 1 && availableHoles.length > 1) {
+      setTimeout(showRandomMole, nextDelay / 2);
+    }
+    
+    moleInterval = setTimeout(showRandomMole, nextDelay);
+  }
+  
+  function missMole() {
+    if (!isPlaying) return;
+    misses++;
+    combo = 1;
+    updateCombo();
+    playSound('miss');
+  }
+  
+  function hideAllMoles() {
+    moles.forEach(function(mole) {
+      mole.classList.remove('active', 'hit', 'golden', 'special');
+    });
+  }
+  
+  function whackMole(event) {
+    if (!isPlaying) return;
+    
+    var hole = event.currentTarget;
+    var mole = hole.querySelector('.mole');
+    
+    if (mole.classList.contains('active') && !mole.classList.contains('hit')) {
+      var moleType = mole.dataset.type;
+      var points = parseInt(mole.dataset.points) * combo;
+      
+      score += points;
+      hits++;
+      combo++;
+      if (combo > maxCombo) maxCombo = combo;
+      
+      scoreEl.textContent = score;
+      updateCombo();
+      mole.classList.add('hit');
+      
+      showHammerEffect(event);
+      showScorePopup(hole, points, moleType);
+      
+      if (moleType === 'golden') {
+        playSound('golden');
+      } else if (moleType === 'special') {
+        playSound('golden');
+      } else {
+        playSound('hit');
+      }
+      
+      if (combo >= 5) {
+        showComboEffect();
+        playSound('combo');
+      }
+      
+      setTimeout(function() {
+        mole.classList.remove('active', 'hit', 'golden', 'special');
+      }, 300);
+    }
+  }
+  
+  function showHammerEffect(event) {
+    var rect = event.currentTarget.getBoundingClientRect();
+    hammer.style.left = rect.left + rect.width / 2 - 30 + 'px';
+    hammer.style.top = rect.top - 20 + 'px';
+    hammer.style.display = 'block';
+    hammer.classList.add('swing');
+    
+    setTimeout(function() {
+      hammer.classList.remove('swing');
+      hammer.style.display = 'none';
+    }, 150);
+  }
+  
+  function showScorePopup(hole, points, moleType) {
+    var popup = document.createElement('div');
+    var className = 'score-popup';
+    if (moleType === 'golden') className += ' bonus';
+    if (moleType === 'special') className += ' special';
+    popup.className = className;
+    popup.textContent = '+' + points;
+    
+    var rect = hole.getBoundingClientRect();
+    popup.style.left = rect.left + rect.width / 2 + 'px';
+    popup.style.top = rect.top + 'px';
+    
+    document.body.appendChild(popup);
+    
+    setTimeout(function() {
+      popup.remove();
+    }, 800);
+  }
+  
+  function showComboEffect() {
+    comboEffect.textContent = combo + ' COMBO!';
+    comboEffect.style.display = 'block';
+    comboEffect.classList.add('show');
+    
+    setTimeout(function() {
+      comboEffect.classList.remove('show');
+      comboEffect.style.display = 'none';
+    }, 500);
+  }
+  
+  function endGame() {
+    isPlaying = false;
+    clearInterval(gameInterval);
+    clearTimeout(moleInterval);
+    hideAllMoles();
+    
+    startBtn.textContent = '开始游戏';
+    startBtn.disabled = false;
+    finalScoreEl.textContent = score;
+    statsEl.textContent = '击中: ' + hits + ' | 漏打: ' + misses + ' | 最高连击: x' + maxCombo;
+    gameOverEl.style.display = 'block';
+  }
+  
+  holes.forEach(function(hole) {
+    hole.addEventListener('click', whackMole);
+  });
+  
+  startBtn.addEventListener('click', startGame);
+  restartBtn.addEventListener('click', startGame);
+})();
+</script>
+</body>
+</html>

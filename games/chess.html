@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>国际象棋 - Chess</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-board { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; background: #333; padding: 10px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .cell { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; }
+  .cell.light { background: #f0d9b5; }
+  .cell.dark { background: #b58863; }
+  .cell.selected { box-shadow: inset 0 0 15px rgba(59, 130, 246, 0.8); }
+  .cell.valid-move::before { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: rgba(74, 222, 128, 0.7); }
+  .cell.capture-move::before { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: rgba(239, 68, 68, 0.7); }
+  .piece { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; font-size: 28px; position: relative; z-index: 1; transition: transform 0.1s; }
+  .piece.white { color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
+  .piece.black { color: #1a1a1a; text-shadow: 1px 1px 2px rgba(255,255,255,0.3); }
+  .piece.moving { animation: moveAnim 0.2s ease-out; }
+  @keyframes moveAnim { 0% { transform: scale(1.2); } 100% { transform: scale(1); } }
+  .ui-bar { margin-bottom: 10px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .status { font-size: 18px; font-weight: bold; }
+  .btn { padding: 8px 20px; font-size: 16px; font-weight: bold; background: #6366f1; color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #4f46e5; }
+  .btn:active { transform: scale(0.95); }
+  .mode-btn { padding: 6px 14px; font-size: 14px; background: #4a4a6a; }
+  .mode-btn.active { background: #6366f1; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="status" id="status">白方先行</div>
+    <div class="mode-group">
+      <button class="btn mode-btn active" id="pveMode">人机对战</button>
+      <button class="btn mode-btn" id="pvpMode">双人对战</button>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2 id="winnerText">🎉 白方获胜！</h2>
+  <button class="btn" id="newGameWinBtn">再来一局</button>
+</div>
+
+<script>
+(function() {
+  var BOARD_SIZE = 8;
+  var board = [];
+  var currentPlayer = 1;
+  var selectedCell = null;
+  var gameOver = false;
+  var gameMode = 'pve';
+  var isAIThinking = false;
+  var whiteKingPos = { r: 7, c: 4 };
+  var blackKingPos = { r: 0, c: 4 };
+  var castling = { wK: true, wQ: true, bK: true, bQ: true };
+  var enPassantTarget = null;
+  
+  var boardEl = document.getElementById('game-board');
+  var statusEl = document.getElementById('status');
+  var pveModeBtn = document.getElementById('pveMode');
+  var pvpModeBtn = document.getElementById('pvpMode');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var winMessage = document.getElementById('winMessage');
+  var winnerText = document.getElementById('winnerText');
+  var newGameWinBtn = document.getElementById('newGameWinBtn');
+  
+  var pieces = {
+    'K': { name: '♔', value: 10000 },
+    'Q': { name: '♕', value: 900 },
+    'R': { name: '♖', value: 500 },
+    'B': { name: '♗', value: 320 },
+    'N': { name: '♘', value: 300 },
+    'P': { name: '♙', value: 100 }
+  };
+  
+  function initGame() {
+    board = [];
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      board[r] = [];
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        board[r][c] = null;
+      }
+    }
+    
+    for (var c = 0; c < BOARD_SIZE; c++) {
+      board[1][c] = { type: 'P', player: 2 };
+      board[6][c] = { type: 'P', player: 1 };
+    }
+    
+    board[0][0] = { type: 'R', player: 2 };
+    board[0][7] = { type: 'R', player: 2 };
+    board[7][0] = { type: 'R', player: 1 };
+    board[7][7] = { type: 'R', player: 1 };
+    
+    board[0][1] = { type: 'N', player: 2 };
+    board[0][6] = { type: 'N', player: 2 };
+    board[7][1] = { type: 'N', player: 1 };
+    board[7][6] = { type: 'N', player: 1 };
+    
+    board[0][2] = { type: 'B', player: 2 };
+    board[0][5] = { type: 'B', player: 2 };
+    board[7][2] = { type: 'B', player: 1 };
+    board[7][5] = { type: 'B', player: 1 };
+    
+    board[0][3] = { type: 'Q', player: 2 };
+    board[7][3] = { type: 'Q', player: 1 };
+    
+    board[0][4] = { type: 'K', player: 2 };
+    board[7][4] = { type: 'K', player: 1 };
+    
+    whiteKingPos = { r: 7, c: 4 };
+    blackKingPos = { r: 0, c: 4 };
+    castling = { wK: true, wQ: true, bK: true, bQ: true };
+    enPassantTarget = null;
+    currentPlayer = 1;
+    selectedCell = null;
+    gameOver = false;
+    isAIThinking = false;
+    renderBoard();
+    statusEl.textContent = '白方先行';
+    winMessage.style.display = 'none';
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        var cell = document.createElement('div');
+        cell.className = 'cell ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        
+        if (board[r][c]) {
+          var piece = document.createElement('div');
+          piece.className = 'piece ' + (board[r][c].player === 1 ? 'white' : 'black');
+          piece.textContent = pieces[board[r][c].type].name;
+          cell.appendChild(piece);
+        }
+        
+        if (selectedCell && selectedCell.r === r && selectedCell.c === c) {
+          cell.classList.add('selected');
+        }
+        
+        if (selectedCell) {
+          var isValid = isValidMove(selectedCell.r, selectedCell.c, r, c);
+          if (isValid) {
+            if (board[r][c]) {
+              cell.classList.add('capture-move');
+            } else {
+              cell.classList.add('valid-move');
+            }
+          }
+        }
+        
+        cell.addEventListener('click', function() {
+          onCellClick(parseInt(this.dataset.row), parseInt(this.dataset.col));
+        });
+        
+        boardEl.appendChild(cell);
+      }
+    }
+  }
+  
+  function onCellClick(r, c) {
+    if (gameOver || isAIThinking) return;
+    if (gameMode === 'pve' && currentPlayer === 2) return;
+    
+    if (selectedCell) {
+      if (selectedCell.r === r && selectedCell.c === c) {
+        selectedCell = null;
+        renderBoard();
+        return;
+      }
+      
+      if (isValidMove(selectedCell.r, selectedCell.c, r, c)) {
+        makeMove(selectedCell.r, selectedCell.c, r, c);
+        selectedCell = null;
+        
+        if (!gameOver && gameMode === 'pve' && currentPlayer === 2) {
+          isAIThinking = true;
+          statusEl.textContent = 'AI思考中...';
+          setTimeout(function() {
+            aiMove();
+            isAIThinking = false;
+          }, 800);
+        }
+        return;
+      }
+    }
+    
+    if (board[r][c] && board[r][c].player === currentPlayer) {
+      selectedCell = { r, c };
+      renderBoard();
+    }
+  }
+  
+  function makeMove(fromR, fromC, toR, toC) {
+    var state = saveState();
+    
+    var piece = board[fromR][fromC];
+    var captured = board[toR][toC];
+    
+    if (piece.type === 'K') {
+      if (piece.player === 1) {
+        whiteKingPos = { r: toR, c: toC };
+        castling.wK = false;
+        castling.wQ = false;
+      } else {
+        blackKingPos = { r: toR, c: toC };
+        castling.bK = false;
+        castling.bQ = false;
+      }
+      
+      if (Math.abs(toC - fromC) === 2) {
+        var rookC = toC > fromC ? 7 : 0;
+        var rookToC = toC > fromC ? toC - 1 : toC + 1;
+        board[toR][rookToC] = board[toR][rookC];
+        board[toR][rookC] = null;
+        
+        if (piece.player === 1) {
+          if (rookC === 0) castling.wQ = false;
+          else castling.wK = false;
+        } else {
+          if (rookC === 0) castling.bQ = false;
+          else castling.bK = false;
+        }
+      }
+    }
+    
+    if (piece.type === 'R') {
+      if (piece.player === 1) {
+        if (fromR === 7 && fromC === 0) castling.wQ = false;
+        if (fromR === 7 && fromC === 7) castling.wK = false;
+      } else {
+        if (fromR === 0 && fromC === 0) castling.bQ = false;
+        if (fromR === 0 && fromC === 7) castling.bK = false;
+      }
+    }
+    
+    if (piece.type === 'P') {
+      if (Math.abs(toR - fromR) === 2) {
+        enPassantTarget = { r: (fromR + toR) / 2, c: fromC };
+      } else {
+        enPassantTarget = null;
+      }
+      
+      if (fromC !== toC && !board[toR][toC]) {
+        board[fromR][toC] = null;
+      }
+      
+      if (toR === 0 || toR === BOARD_SIZE - 1) {
+        piece.type = 'Q';
+      }
+    } else {
+      enPassantTarget = null;
+    }
+    
+    board[toR][toC] = piece;
+    board[fromR][fromC] = null;
+    
+    checkGameOver();
+    
+    if (!gameOver) {
+      currentPlayer = currentPlayer === 1 ? 2 : 1;
+      statusEl.textContent = (currentPlayer === 1 ? '白方' : '黑方') + '回合';
+      renderBoard();
+    }
+  }
+  
+  function isValidMove(fromR, fromC, toR, toC) {
+    if (fromR === toR && fromC === toC) return false;
+    
+    var piece = board[fromR][fromC];
+    if (!piece) return false;
+    if (piece.player !== currentPlayer) return false;
+    
+    if (board[toR][toC] && board[toR][toC].player === currentPlayer) {
+      return false;
+    }
+    
+    var moves = getValidMoves(fromR, fromC);
+    for (var i = 0; i < moves.length; i++) {
+      if (moves[i].r === toR && moves[i].c === toC) {
+        return isMoveSafe(fromR, fromC, toR, toC);
+      }
+    }
+    return false;
+  }
+  
+  function getValidMoves(r, c) {
+    var piece = board[r][c];
+    var moves = [];
+    
+    switch (piece.type) {
+      case 'K':
+        for (var dr = -1; dr <= 1; dr++) {
+          for (var dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            var nr = r + dr;
+            var nc = c + dc;
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+              if (!board[nr][nc] || board[nr][nc].player !== piece.player) {
+                moves.push({ r: nr, c: nc });
+              }
+            }
+          }
+        }
+        
+        if (piece.player === 1) {
+          if (castling.wK && !board[7][5] && !board[7][6]) {
+            if (!isSquareAttacked(7, 4, 2) && !isSquareAttacked(7, 5, 2)) {
+              moves.push({ r: 7, c: 6 });
+            }
+          }
+          if (castling.wQ && !board[7][3] && !board[7][2] && !board[7][1]) {
+            if (!isSquareAttacked(7, 4, 2) && !isSquareAttacked(7, 3, 2)) {
+              moves.push({ r: 7, c: 2 });
+            }
+          }
+        } else {
+          if (castling.bK && !board[0][5] && !board[0][6]) {
+            if (!isSquareAttacked(0, 4, 1) && !isSquareAttacked(0, 5, 1)) {
+              moves.push({ r: 0, c: 6 });
+            }
+          }
+          if (castling.bQ && !board[0][3] && !board[0][2] && !board[0][1]) {
+            if (!isSquareAttacked(0, 4, 1) && !isSquareAttacked(0, 3, 1)) {
+              moves.push({ r: 0, c: 2 });
+            }
+          }
+        }
+        break;
+        
+      case 'Q':
+        moves = moves.concat(getSlidingMoves(r, c, [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]));
+        break;
+        
+      case 'R':
+        moves = moves.concat(getSlidingMoves(r, c, [1, 0], [-1, 0], [0, 1], [0, -1]));
+        break;
+        
+      case 'B':
+        moves = moves.concat(getSlidingMoves(r, c, [1, 1], [1, -1], [-1, 1], [-1, -1]));
+        break;
+        
+      case 'N':
+        var knightMoves = [[2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2]];
+        for (var i = 0; i < knightMoves.length; i++) {
+          var nr = r + knightMoves[i][0];
+          var nc = c + knightMoves[i][1];
+          if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+            if (!board[nr][nc] || board[nr][nc].player !== piece.player) {
+              moves.push({ r: nr, c: nc });
+            }
+          }
+        }
+        break;
+        
+      case 'P':
+        var direction = piece.player === 1 ? -1 : 1;
+        
+        if (!board[r + direction][c]) {
+          moves.push({ r: r + direction, c: c });
+          if ((piece.player === 1 && r === 6) || (piece.player === 2 && r === 1)) {
+            if (!board[r + direction * 2][c]) {
+              moves.push({ r: r + direction * 2, c: c });
+            }
+          }
+        }
+        
+        for (var dc = -1; dc <= 1; dc += 2) {
+          var nc = c + dc;
+          var nr = r + direction;
+          if (nc >= 0 && nc < BOARD_SIZE && nr >= 0 && nr < BOARD_SIZE) {
+            if (board[nr][nc] && board[nr][nc].player !== piece.player) {
+              moves.push({ r: nr, c: nc });
+            }
+            if (enPassantTarget && enPassantTarget.r === nr && enPassantTarget.c === nc) {
+              moves.push({ r: nr, c: nc });
+            }
+          }
+        }
+        break;
+    }
+    
+    return moves;
+  }
+  
+  function getSlidingMoves(r, c) {
+    var moves = [];
+    var directions = Array.prototype.slice.call(arguments, 2);
+    var player = board[r][c].player;
+    
+    for (var i = 0; i < directions.length; i++) {
+      var dr = directions[i][0];
+      var dc = directions[i][1];
+      var nr = r + dr;
+      var nc = c + dc;
+      
+      while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+        if (!board[nr][nc]) {
+          moves.push({ r: nr, c: nc });
+        } else {
+          if (board[nr][nc].player !== player) {
+            moves.push({ r: nr, c: nc });
+          }
+          break;
+        }
+        nr += dr;
+        nc += dc;
+      }
+    }
+    
+    return moves;
+  }
+  
+  function isMoveSafe(fromR, fromC, toR, toC) {
+    var state = saveState();
+    
+    var piece = board[fromR][fromC];
+    var captured = board[toR][toC];
+    
+    if (piece.type === 'K') {
+      if (piece.player === 1) {
+        whiteKingPos = { r: toR, c: toC };
+      } else {
+        blackKingPos = { r: toR, c: toC };
+      }
+      
+      if (Math.abs(toC - fromC) === 2) {
+        var rookC = toC > fromC ? 7 : 0;
+        var rookToC = toC > fromC ? toC - 1 : toC + 1;
+        board[toR][rookToC] = board[toR][rookC];
+        board[toR][rookC] = null;
+      }
+    }
+    
+    if (piece.type === 'P') {
+      if (fromC !== toC && !board[toR][toC]) {
+        board[fromR][toC] = null;
+      }
+    }
+    
+    board[toR][toC] = piece;
+    board[fromR][fromC] = null;
+    
+    var kingPos = currentPlayer === 1 ? whiteKingPos : blackKingPos;
+    var isSafe = !isSquareAttacked(kingPos.r, kingPos.c, currentPlayer === 1 ? 2 : 1);
+    
+    restoreState(state);
+    
+    return isSafe;
+  }
+  
+  function isSquareAttacked(r, c, attacker) {
+    for (var rr = 0; rr < BOARD_SIZE; rr++) {
+      for (var cc = 0; cc < BOARD_SIZE; cc++) {
+        if (board[rr][cc] && board[rr][cc].player === attacker) {
+          var moves = getValidMovesNoCastle(rr, cc);
+          for (var i = 0; i < moves.length; i++) {
+            if (moves[i].r === r && moves[i].c === c) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+  
+  function getValidMovesNoCastle(r, c) {
+    var piece = board[r][c];
+    var moves = [];
+    
+    switch (piece.type) {
+      case 'K':
+        for (var dr = -1; dr <= 1; dr++) {
+          for (var dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            var nr = r + dr;
+            var nc = c + dc;
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+              if (!board[nr][nc] || board[nr][nc].player !== piece.player) {
+                moves.push({ r: nr, c: nc });
+              }
+            }
+          }
+        }
+        break;
+        
+      case 'Q':
+        moves = moves.concat(getSlidingMoves(r, c, [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]));
+        break;
+        
+      case 'R':
+        moves = moves.concat(getSlidingMoves(r, c, [1, 0], [-1, 0], [0, 1], [0, -1]));
+        break;
+        
+      case 'B':
+        moves = moves.concat(getSlidingMoves(r, c, [1, 1], [1, -1], [-1, 1], [-1, -1]));
+        break;
+        
+      case 'N':
+        var knightMoves = [[2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2]];
+        for (var i = 0; i < knightMoves.length; i++) {
+          var nr = r + knightMoves[i][0];
+          var nc = c + knightMoves[i][1];
+          if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+            if (!board[nr][nc] || board[nr][nc].player !== piece.player) {
+              moves.push({ r: nr, c: nc });
+            }
+          }
+        }
+        break;
+        
+      case 'P':
+        var direction = piece.player === 1 ? -1 : 1;
+        for (var dc = -1; dc <= 1; dc += 2) {
+          var nc = c + dc;
+          var nr = r + direction;
+          if (nc >= 0 && nc < BOARD_SIZE && nr >= 0 && nr < BOARD_SIZE) {
+            if (board[nr][nc] && board[nr][nc].player !== piece.player) {
+              moves.push({ r: nr, c: nc });
+            }
+            if (enPassantTarget && enPassantTarget.r === nr && enPassantTarget.c === nc) {
+              moves.push({ r: nr, c: nc });
+            }
+          }
+        }
+        break;
+    }
+    
+    return moves;
+  }
+  
+  function saveState() {
+    return {
+      board: JSON.parse(JSON.stringify(board)),
+      whiteKingPos: { ...whiteKingPos },
+      blackKingPos: { ...blackKingPos },
+      castling: { ...castling },
+      enPassantTarget: enPassantTarget ? { ...enPassantTarget } : null,
+      currentPlayer: currentPlayer
+    };
+  }
+  
+  function restoreState(state) {
+    board = state.board;
+    whiteKingPos = state.whiteKingPos;
+    blackKingPos = state.blackKingPos;
+    castling = state.castling;
+    enPassantTarget = state.enPassantTarget;
+    currentPlayer = state.currentPlayer;
+  }
+  
+  function checkGameOver() {
+    var kingPos = currentPlayer === 1 ? whiteKingPos : blackKingPos;
+    var inCheck = isSquareAttacked(kingPos.r, kingPos.c, currentPlayer === 1 ? 2 : 1);
+    
+    var hasValidMove = false;
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] && board[r][c].player === currentPlayer) {
+          var moves = getValidMoves(r, c);
+          for (var i = 0; i < moves.length; i++) {
+            if (isMoveSafe(r, c, moves[i].r, moves[i].c)) {
+              hasValidMove = true;
+              break;
+            }
+          }
+          if (hasValidMove) break;
+        }
+      }
+      if (hasValidMove) break;
+    }
+    
+    if (!hasValidMove) {
+      gameOver = true;
+      if (inCheck) {
+        statusEl.textContent = (currentPlayer === 1 ? '白方' : '黑方') + '被将死！';
+        winnerText.textContent = '🎉 ' + (currentPlayer === 1 ? '黑方' : '白方') + '获胜！';
+      } else {
+        statusEl.textContent = '和棋！';
+        winnerText.textContent = '🤝 和棋！';
+      }
+      winMessage.style.display = 'block';
+    }
+  }
+  
+  function aiMove() {
+    var moves = getAllValidMoves(2);
+    if (moves.length === 0) return;
+    
+    var bestMove = null;
+    var bestScore = -Infinity;
+    var DEPTH = 2;
+    
+    for (var i = 0; i < moves.length; i++) {
+      var move = moves[i];
+      var state = saveState();
+      makeMove(move.fromR, move.fromC, move.toR, move.toC);
+      var score = minimax(DEPTH - 1, -Infinity, Infinity, false);
+      restoreState(state);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+      } else if (score === bestScore && Math.random() < 0.2) {
+        bestMove = move;
+      }
+    }
+    
+    if (bestMove) {
+      makeMove(bestMove.fromR, bestMove.fromC, bestMove.toR, bestMove.toC);
+    }
+  }
+  
+  function minimax(depth, alpha, beta, isMaximizing) {
+    if (depth === 0) {
+      return evaluateBoard();
+    }
+    
+    var moves = getAllValidMoves(isMaximizing ? 2 : 1);
+    if (moves.length === 0) {
+      return isMaximizing ? -100000 : 100000;
+    }
+    
+    if (isMaximizing) {
+      var maxScore = -Infinity;
+      for (var i = 0; i < moves.length; i++) {
+        var move = moves[i];
+        var state = saveState();
+        makeMove(move.fromR, move.fromC, move.toR, move.toC);
+        var score = minimax(depth - 1, alpha, beta, false);
+        restoreState(state);
+        
+        maxScore = Math.max(maxScore, score);
+        alpha = Math.max(alpha, score);
+        if (beta <= alpha) break;
+      }
+      return maxScore;
+    } else {
+      var minScore = Infinity;
+      for (var i = 0; i < moves.length; i++) {
+        var move = moves[i];
+        var state = saveState();
+        makeMove(move.fromR, move.fromC, move.toR, move.toC);
+        var score = minimax(depth - 1, alpha, beta, true);
+        restoreState(state);
+        
+        minScore = Math.min(minScore, score);
+        beta = Math.min(beta, score);
+        if (beta <= alpha) break;
+      }
+      return minScore;
+    }
+  }
+  
+  function getAllValidMoves(player) {
+    var savedPlayer = currentPlayer;
+    currentPlayer = player;
+    
+    var moves = [];
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] && board[r][c].player === player) {
+          var pieceMoves = getValidMoves(r, c);
+          for (var i = 0; i < pieceMoves.length; i++) {
+            if (isMoveSafe(r, c, pieceMoves[i].r, pieceMoves[i].c)) {
+              moves.push({
+                fromR: r, fromC: c,
+                toR: pieceMoves[i].r, toC: pieceMoves[i].c
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    currentPlayer = savedPlayer;
+    return moves;
+  }
+  
+  function evaluateBoard() {
+    var score = 0;
+    var positionScores = {
+      'P': [0,0,0,0,0,0,0,0,50,50,50,50,50,50,50,50,10,10,20,30,30,20,10,10,5,5,10,25,25,10,5,5,0,0,0,20,20,0,0,0,5,-5,-10,0,0,-10,-5,5,10,10,20,-20,-20,10,10,50,50,50,50,50,50,50,50,0,0,0,0,0,0,0,0],
+      'N': [-50,-40,-30,-30,-30,-30,-40,-50,-40,-20,0,0,0,0,-20,-40,-30,0,10,15,15,10,0,-30,-30,5,15,20,20,15,5,-30,-30,0,15,20,20,15,0,-30,-30,5,10,15,15,10,5,-30,-40,-20,0,5,5,0,-20,-40,-50,-40,-30,-30,-30,-30,-40,-50],
+      'B': [-20,-10,-10,-10,-10,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,10,10,5,0,-10,-10,0,10,10,10,10,0,-10,-10,5,10,10,10,5,0,-10,-10,0,5,5,5,5,0,-10,-20,-10,-10,-10,-10,-10,-10,-20],
+      'R': [0,0,0,0,0,0,0,0,5,10,10,10,10,10,10,5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,-5,0,0,0,0,0,0,-5,0,0,0,5,5,0,0,0],
+      'Q': [-20,-10,-10,-5,-5,-10,-10,-20,-10,0,0,0,0,0,0,-10,-10,0,5,5,5,5,0,-10,-5,0,5,5,5,5,0,-5,0,0,5,5,5,5,0,-5,-10,0,5,5,5,5,0,-10,-20,-10,-10,-5,-5,-10,-10,-20],
+      'K': [-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-30,-40,-40,-50,-50,-40,-40,-30,-20,-30,-30,-40,-40,-30,-30,-20,-10,-20,-20,-20,-20,-20,-20,-10,20,20,0,0,0,0,20,20,20,30,10,0,0,10,30,20]
+    };
+    
+    for (var r = 0; r < BOARD_SIZE; r++) {
+      for (var c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c]) {
+          var piece = board[r][c];
+          var value = pieces[piece.type].value;
+          
+          if (positionScores[piece.type]) {
+            var posScore = piece.player === 2 ? positionScores[piece.type][r * 8 + c] : positionScores[piece.type][(7 - r) * 8 + c];
+            value += posScore;
+          }
+          
+          if (piece.player === 2) {
+            score += value;
+          } else {
+            score -= value;
+          }
+        }
+      }
+    }
+    
+    return score;
+  }
+  
+  pveModeBtn.addEventListener('click', function() {
+    gameMode = 'pve';
+    pveModeBtn.classList.add('active');
+    pvpModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  pvpModeBtn.addEventListener('click', function() {
+    gameMode = 'pvp';
+    pvpModeBtn.classList.add('active');
+    pveModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  newGameBtn.addEventListener('click', initGame);
+  newGameWinBtn.addEventListener('click', initGame);
+  
+  initGame();
+})();
+</script>
+</body>
+</html>

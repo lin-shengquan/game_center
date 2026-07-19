@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>跳棋 - Checkers</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-board { position: relative; background: #dcb35c; padding: 15px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .hex-grid { display: flex; flex-direction: column; gap: 4px; }
+  .hex-row { display: flex; gap: 4px; }
+  .hex-row.offset { margin-left: 24px; }
+  .hex-cell { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; }
+  .hex-shape { width: 100%; height: 100%; background: #c9a050; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); }
+  .hex-cell.dark .hex-shape { background: #8b7355; }
+  .hex-cell.selected .hex-shape { background: rgba(59, 130, 246, 0.5); }
+  .hex-cell.valid-move .hex-shape { background: rgba(74, 222, 128, 0.5); }
+  .piece { width: 32px; height: 32px; border-radius: 50%; position: absolute; z-index: 1; }
+  .piece.red { background: radial-gradient(circle at 30% 30%, #ff6b6b, #c0392b); box-shadow: 2px 2px 4px rgba(0,0,0,0.4); }
+  .piece.black { background: radial-gradient(circle at 30% 30%, #34495e, #1a252f); box-shadow: 2px 2px 4px rgba(0,0,0,0.4); }
+  .piece.king { border: 3px solid #fbbf24; }
+  .ui-bar { margin-bottom: 15px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .status { font-size: 18px; font-weight: bold; }
+  .btn { padding: 8px 20px; font-size: 16px; font-weight: bold; background: #6366f1; color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #4f46e5; }
+  .btn:active { transform: scale(0.95); }
+  .mode-btn { padding: 6px 14px; font-size: 14px; background: #4a4a6a; }
+  .mode-btn.active { background: #6366f1; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="status" id="status">红方先行</div>
+    <div class="mode-group">
+      <button class="btn mode-btn active" id="pveMode">人机对战</button>
+      <button class="btn mode-btn" id="pvpMode">双人对战</button>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+  </div>
+  <div id="game-board">
+    <div class="hex-grid" id="hexGrid"></div>
+  </div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2 id="winnerText">🎉 红方获胜！</h2>
+  <button class="btn" id="newGameWinBtn">再来一局</button>
+</div>
+
+<script>
+(function() {
+  var ROWS = 6;
+  var board = [];
+  var currentPlayer = 1;
+  var selectedCell = null;
+  var gameOver = false;
+  var gameMode = 'pve';
+  var isAIThinking = false;
+  
+  var boardEl = document.getElementById('hexGrid');
+  var statusEl = document.getElementById('status');
+  var pveModeBtn = document.getElementById('pveMode');
+  var pvpModeBtn = document.getElementById('pvpMode');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var winMessage = document.getElementById('winMessage');
+  var winnerText = document.getElementById('winnerText');
+  var newGameWinBtn = document.getElementById('newGameWinBtn');
+  
+  function initGame() {
+    board = [];
+    for (var r = 0; r < ROWS; r++) {
+      board[r] = [];
+      for (var c = 0; c < ROWS; c++) {
+        board[r][c] = { piece: null };
+      }
+    }
+    
+    for (var r = 0; r < 2; r++) {
+      for (var c = 0; c < ROWS; c++) {
+        if ((r + c) % 2 === 1) {
+          board[r][c].piece = { player: 2 };
+        }
+      }
+    }
+    
+    for (var r = ROWS - 2; r < ROWS; r++) {
+      for (var c = 0; c < ROWS; c++) {
+        if ((r + c) % 2 === 0) {
+          board[r][c].piece = { player: 1 };
+        }
+      }
+    }
+    
+    currentPlayer = 1;
+    selectedCell = null;
+    gameOver = false;
+    isAIThinking = false;
+    renderBoard();
+    statusEl.textContent = '红方先行';
+    winMessage.style.display = 'none';
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    
+    for (var r = 0; r < ROWS; r++) {
+      var row = document.createElement('div');
+      row.className = 'hex-row' + (r % 2 === 1 ? ' offset' : '');
+      
+      for (var c = 0; c < ROWS; c++) {
+        var cell = document.createElement('div');
+        cell.className = 'hex-cell' + ((r + c) % 2 === 1 ? ' dark' : '');
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        
+        var shape = document.createElement('div');
+        shape.className = 'hex-shape';
+        cell.appendChild(shape);
+        
+        if (board[r][c].piece) {
+          var piece = document.createElement('div');
+          piece.className = 'piece ' + (board[r][c].piece.player === 1 ? 'red' : 'black');
+          if (board[r][c].piece.king) {
+            piece.classList.add('king');
+          }
+          cell.appendChild(piece);
+        }
+        
+        if (selectedCell && selectedCell.r === r && selectedCell.c === c) {
+          cell.classList.add('selected');
+        }
+        
+        if (selectedCell && isValidMove(selectedCell.r, selectedCell.c, r, c)) {
+          cell.classList.add('valid-move');
+        }
+        
+        cell.addEventListener('click', function() {
+          onCellClick(parseInt(this.dataset.row), parseInt(this.dataset.col));
+        });
+        
+        row.appendChild(cell);
+      }
+      
+      boardEl.appendChild(row);
+    }
+  }
+  
+  function onCellClick(r, c) {
+    if (gameOver) return;
+    if (isAIThinking) return;
+    
+    if (gameMode === 'pve' && currentPlayer === 2) return;
+    
+    if (selectedCell) {
+      if (selectedCell.r === r && selectedCell.c === c) {
+        selectedCell = null;
+        renderBoard();
+        return;
+      }
+      
+      if (isValidMove(selectedCell.r, selectedCell.c, r, c)) {
+        makeMove(selectedCell.r, selectedCell.c, r, c);
+        selectedCell = null;
+        
+        if (!gameOver && gameMode === 'pve' && currentPlayer === 2) {
+          isAIThinking = true;
+          statusEl.textContent = 'AI思考中...';
+          setTimeout(function() {
+            aiMove();
+            isAIThinking = false;
+          }, 500);
+        }
+        return;
+      }
+    }
+    
+    if (board[r][c].piece && board[r][c].piece.player === currentPlayer) {
+      selectedCell = { r, c };
+      renderBoard();
+    }
+  }
+  
+  function makeMove(fromR, fromC, toR, toC) {
+    var piece = board[fromR][fromC].piece;
+    board[toR][toC].piece = piece;
+    board[fromR][fromC].piece = null;
+    
+    var dr = toR - fromR;
+    var dc = toC - fromC;
+    
+    if (Math.abs(dr) === 2) {
+      var midR = fromR + dr / 2;
+      var midC = fromC + dc / 2;
+      board[midR][midC].piece = null;
+    }
+    
+    if (toR === 0 && piece.player === 2) {
+      piece.king = true;
+    }
+    if (toR === ROWS - 1 && piece.player === 1) {
+      piece.king = true;
+    }
+    
+    checkWin();
+    
+    if (!gameOver) {
+      currentPlayer = currentPlayer === 1 ? 2 : 1;
+      statusEl.textContent = (currentPlayer === 1 ? '红方' : '黑方') + '回合';
+      renderBoard();
+    }
+  }
+  
+  function isValidMove(fromR, fromC, toR, toC) {
+    if (fromR === toR && fromC === toC) return false;
+    
+    var piece = board[fromR][fromC].piece;
+    if (!piece) return false;
+    
+    if (board[toR][toC].piece) return false;
+    
+    var dr = toR - fromR;
+    var dc = toC - fromC;
+    
+    if (Math.abs(dr) === 1 && Math.abs(dc) === 1) {
+      if (piece.player === 1) {
+        if (dr !== -1 && !piece.king) return false;
+      } else {
+        if (dr !== 1 && !piece.king) return false;
+      }
+      return true;
+    }
+    
+    if (Math.abs(dr) === 2 && Math.abs(dc) === 2) {
+      if (piece.player === 1) {
+        if (dr !== -2 && !piece.king) return false;
+      } else {
+        if (dr !== 2 && !piece.king) return false;
+      }
+      
+      var midR = fromR + dr / 2;
+      var midC = fromC + dc / 2;
+      var midPiece = board[midR][midC].piece;
+      
+      if (midPiece && midPiece.player !== piece.player) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  function checkWin() {
+    var redPieces = 0;
+    var blackPieces = 0;
+    
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < ROWS; c++) {
+        if (board[r][c].piece) {
+          if (board[r][c].piece.player === 1) {
+            redPieces++;
+          } else {
+            blackPieces++;
+          }
+        }
+      }
+    }
+    
+    if (redPieces === 0) {
+      gameOver = true;
+      statusEl.textContent = '黑方获胜！';
+      winnerText.textContent = '🎉 黑方获胜！';
+      winMessage.style.display = 'block';
+    } else if (blackPieces === 0) {
+      gameOver = true;
+      statusEl.textContent = '红方获胜！';
+      winnerText.textContent = '🎉 红方获胜！';
+      winMessage.style.display = 'block';
+    }
+  }
+  
+  function aiMove() {
+    var moves = getAllValidMoves(2);
+    if (moves.length === 0) return;
+    
+    var bestMove = null;
+    var bestScore = -Infinity;
+    var DEPTH = 3;
+    
+    for (var i = 0; i < moves.length; i++) {
+      var move = moves[i];
+      simulateMove(move.fromR, move.fromC, move.toR, move.toC);
+      var score = minimax(DEPTH - 1, -Infinity, Infinity, false);
+      undoSimulation(move.fromR, move.fromC, move.toR, move.toC, move.captured);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+      } else if (score === bestScore && Math.random() < 0.3) {
+        bestMove = move;
+      }
+    }
+    
+    if (bestMove) {
+      makeMove(bestMove.fromR, bestMove.fromC, bestMove.toR, bestMove.toC);
+    }
+  }
+  
+  function minimax(depth, alpha, beta, isMaximizing) {
+    if (depth === 0) {
+      return evaluateBoard();
+    }
+    
+    var moves = getAllValidMoves(isMaximizing ? 2 : 1);
+    if (moves.length === 0) {
+      return isMaximizing ? -10000 : 10000;
+    }
+    
+    if (isMaximizing) {
+      var maxScore = -Infinity;
+      for (var i = 0; i < moves.length; i++) {
+        var move = moves[i];
+        simulateMove(move.fromR, move.fromC, move.toR, move.toC);
+        var score = minimax(depth - 1, alpha, beta, false);
+        undoSimulation(move.fromR, move.fromC, move.toR, move.toC, move.captured);
+        
+        maxScore = Math.max(maxScore, score);
+        alpha = Math.max(alpha, score);
+        if (beta <= alpha) break;
+      }
+      return maxScore;
+    } else {
+      var minScore = Infinity;
+      for (var i = 0; i < moves.length; i++) {
+        var move = moves[i];
+        simulateMove(move.fromR, move.fromC, move.toR, move.toC);
+        var score = minimax(depth - 1, alpha, beta, true);
+        undoSimulation(move.fromR, move.fromC, move.toR, move.toC, move.captured);
+        
+        minScore = Math.min(minScore, score);
+        beta = Math.min(beta, score);
+        if (beta <= alpha) break;
+      }
+      return minScore;
+    }
+  }
+  
+  function getAllValidMoves(player) {
+    var moves = [];
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < ROWS; c++) {
+        if (board[r][c].piece && board[r][c].piece.player === player) {
+          for (var nr = 0; nr < ROWS; nr++) {
+            for (var nc = 0; nc < ROWS; nc++) {
+              if (isValidMove(r, c, nr, nc)) {
+                var captured = null;
+                var dr = nr - r;
+                if (Math.abs(dr) === 2) {
+                  var midR = r + dr / 2;
+                  var midC = c + (nc - c) / 2;
+                  captured = board[midR][midC].piece ? { ...board[midR][midC].piece } : null;
+                }
+                moves.push({
+                  fromR: r, fromC: c,
+                  toR: nr, toC: nc,
+                  captured: captured
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+    return moves;
+  }
+  
+  function simulateMove(fromR, fromC, toR, toC) {
+    var piece = board[fromR][fromC].piece;
+    var captured = null;
+    board[toR][toC].piece = piece;
+    board[fromR][fromC].piece = null;
+    
+    var dr = toR - fromR;
+    if (Math.abs(dr) === 2) {
+      var midR = fromR + dr / 2;
+      var midC = fromC + (toC - fromC) / 2;
+      captured = board[midR][midC].piece;
+      board[midR][midC].piece = null;
+    }
+    
+    if (toR === 0 && piece.player === 2) {
+      piece.king = true;
+    }
+    
+    return captured;
+  }
+  
+  function undoSimulation(fromR, fromC, toR, toC, captured) {
+    var piece = board[toR][toC].piece;
+    board[fromR][fromC].piece = piece;
+    board[toR][toC].piece = null;
+    
+    var dr = toR - fromR;
+    if (Math.abs(dr) === 2) {
+      var midR = fromR + dr / 2;
+      var midC = fromC + (toC - fromC) / 2;
+      board[midR][midC].piece = captured;
+    }
+    
+    if (toR === 0 && piece.player === 2) {
+      piece.king = false;
+    }
+  }
+  
+  function evaluateBoard() {
+    var score = 0;
+    
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < ROWS; c++) {
+        if (board[r][c].piece) {
+          var piece = board[r][c].piece;
+          var value = piece.king ? 300 : 100;
+          
+          if (piece.player === 2) {
+            score += value;
+            score += r * 30;
+          } else {
+            score -= value;
+            score -= (ROWS - 1 - r) * 30;
+          }
+        }
+      }
+    }
+    
+    return score;
+  }
+  
+  pveModeBtn.addEventListener('click', function() {
+    gameMode = 'pve';
+    pveModeBtn.classList.add('active');
+    pvpModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  pvpModeBtn.addEventListener('click', function() {
+    gameMode = 'pvp';
+    pvpModeBtn.classList.add('active');
+    pveModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  newGameBtn.addEventListener('click', initGame);
+  newGameWinBtn.addEventListener('click', initGame);
+  
+  initGame();
+})();
+</script>
+</body>
+</html>

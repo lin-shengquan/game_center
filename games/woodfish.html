@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>木鱼功德模拟器 - Woodfish</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%); color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .gongde-box { text-align: center; margin-bottom: 30px; }
+  .gongde-box .label { font-size: 24px; color: #888; margin-bottom: 10px; }
+  .gongde-box .value { font-size: 72px; font-weight: bold; background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .woodfish { width: 200px; height: 200px; cursor: pointer; transition: transform 0.1s; user-select: none; }
+  .woodfish:active { transform: scale(0.95); }
+  .woodfish img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5)); }
+  .knock-effect { position: absolute; font-size: 30px; color: #ffd700; font-weight: bold; pointer-events: none; animation: floatUp 0.8s ease-out forwards; }
+  @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-100px) scale(1.5); } }
+  .stats-bar { margin-top: 30px; display: flex; gap: 40px; }
+  .stat-item { text-align: center; }
+  .stat-item .label { font-size: 12px; color: #888; }
+  .stat-item .value { font-size: 24px; font-weight: bold; color: #4ade80; }
+  .btn { padding: 10px 25px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; margin-top: 20px; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:active { transform: scale(0.95); }
+  .auto-btn { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+  .auto-btn.active { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="gongde-box">
+    <div class="label">功德</div>
+    <div class="value" id="gongde">0</div>
+  </div>
+  
+  <div class="woodfish" id="woodfish">
+    <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <ellipse cx="100" cy="130" rx="60" ry="20" fill="#8b4513" opacity="0.5"/>
+      <rect x="40" y="60" width="120" height="100" rx="15" fill="#a0522d"/>
+      <rect x="50" y="70" width="100" height="80" rx="10" fill="#cd853f"/>
+      <circle cx="100" cy="90" r="15" fill="#8b4513"/>
+      <circle cx="100" cy="90" r="8" fill="#5d3a1a"/>
+      <rect x="85" y="110" width="30" height="50" rx="5" fill="#8b4513"/>
+      <rect x="90" y="115" width="20" height="40" rx="3" fill="#654321"/>
+      <text x="100" y="135" text-anchor="middle" fill="#d4a574" font-size="12" font-weight="bold">功德</text>
+      <text x="100" y="150" text-anchor="middle" fill="#d4a574" font-size="10">+1</text>
+    </svg>
+  </div>
+  
+  <div class="stats-bar">
+    <div class="stat-item">
+      <div class="label">连击</div>
+      <div class="value" id="combo">0</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">敲击次数</div>
+      <div class="value" id="knocks">0</div>
+    </div>
+    <div class="stat-item">
+      <div class="label">最高连击</div>
+      <div class="value" id="maxCombo">0</div>
+    </div>
+  </div>
+  
+  <button class="btn auto-btn" id="autoBtn">自动敲击</button>
+  <button class="btn" id="resetBtn">重置功德</button>
+</div>
+
+<script>
+(function() {
+  var woodfish = document.getElementById('woodfish');
+  var gongdeEl = document.getElementById('gongde');
+  var comboEl = document.getElementById('combo');
+  var knocksEl = document.getElementById('knocks');
+  var maxComboEl = document.getElementById('maxCombo');
+  var autoBtn = document.getElementById('autoBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  
+  var gongde = parseInt(localStorage.getItem('woodfish_gongde') || '0');
+  var knocks = parseInt(localStorage.getItem('woodfish_knocks') || '0');
+  var maxCombo = parseInt(localStorage.getItem('woodfish_maxcombo') || '0');
+  var combo = 0;
+  var comboTimer = null;
+  var isAuto = false;
+  var autoInterval = null;
+  
+  gongdeEl.textContent = gongde.toLocaleString();
+  knocksEl.textContent = knocks.toLocaleString();
+  maxComboEl.textContent = maxCombo;
+  
+  function knock() {
+    combo++;
+    knocks++;
+    
+    var bonus = Math.min(combo, 10);
+    var gain = 1 + Math.floor(combo / 5);
+    
+    gongde += gain;
+    comboEl.textContent = combo;
+    
+    if (combo > maxCombo) {
+      maxCombo = combo;
+      maxComboEl.textContent = maxCombo;
+    }
+    
+    gongdeEl.textContent = gongde.toLocaleString();
+    knocksEl.textContent = knocks.toLocaleString();
+    
+    saveData();
+    showKnockEffect(gain);
+    playKnockSound();
+    
+    if (comboTimer) clearTimeout(comboTimer);
+    comboTimer = setTimeout(function() {
+      combo = 0;
+      comboEl.textContent = combo;
+    }, 2000);
+  }
+  
+  function showKnockEffect(gain) {
+    var effect = document.createElement('div');
+    effect.className = 'knock-effect';
+    effect.textContent = '+' + gain;
+    
+    var rect = woodfish.getBoundingClientRect();
+    effect.style.left = rect.left + rect.width / 2 - 30 + 'px';
+    effect.style.top = rect.top + 'px';
+    
+    document.body.appendChild(effect);
+    
+    setTimeout(function() {
+      effect.remove();
+    }, 800);
+  }
+  
+  function playKnockSound() {
+    try {
+      var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      var oscillator = audioContext.createOscillator();
+      var gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.1);
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.1);
+    } catch(e) {}
+  }
+  
+  function saveData() {
+    localStorage.setItem('woodfish_gongde', gongde.toString());
+    localStorage.setItem('woodfish_knocks', knocks.toString());
+    localStorage.setItem('woodfish_maxcombo', maxCombo.toString());
+  }
+  
+  function toggleAuto() {
+    isAuto = !isAuto;
+    autoBtn.textContent = isAuto ? '停止自动' : '自动敲击';
+    autoBtn.classList.toggle('active');
+    
+    if (isAuto) {
+      autoInterval = setInterval(knock, 200);
+    } else {
+      clearInterval(autoInterval);
+    }
+  }
+  
+  function resetData() {
+    if (confirm('确定要重置所有功德吗？')) {
+      gongde = 0;
+      knocks = 0;
+      maxCombo = 0;
+      combo = 0;
+      
+      gongdeEl.textContent = '0';
+      knocksEl.textContent = '0';
+      maxComboEl.textContent = '0';
+      comboEl.textContent = '0';
+      
+      localStorage.removeItem('woodfish_gongde');
+      localStorage.removeItem('woodfish_knocks');
+      localStorage.removeItem('woodfish_maxcombo');
+    }
+  }
+  
+  woodfish.addEventListener('click', knock);
+  woodfish.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    knock();
+  });
+  
+  autoBtn.addEventListener('click', toggleAuto);
+  resetBtn.addEventListener('click', resetData);
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      knock();
+    }
+  });
+})();
+</script>
+</body>
+</html>

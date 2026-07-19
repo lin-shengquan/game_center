@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>推箱子 - Sokoban</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-board { display: grid; gap: 2px; background: #16213e; padding: 10px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .cell { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 24px; }
+  .wall { background: #4a4a6a; }
+  .floor { background: #2a2a4a; }
+  .target { background: #2a4a3a; border: 2px dashed #4ade80; }
+  .box { background: #fbbf24; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+  .box-on-target { background: #4ade80; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+  .player { color: #60a5fa; font-size: 28px; }
+  .ui-bar { margin-bottom: 15px; display: flex; gap: 20px; align-items: center; }
+  .level-info { font-size: 18px; font-weight: bold; }
+  .moves-info { font-size: 18px; }
+  .btn { padding: 8px 20px; font-size: 16px; font-weight: bold; background: #6366f1; color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #4f46e5; }
+  .btn:active { transform: scale(0.95); }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+  .win-message p { color: #cbd5e1; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="level-info">第 <span id="levelNum">1</span> 关</div>
+    <div class="moves-info">步数: <span id="moves">0</span></div>
+    <button class="btn" id="resetBtn">重置</button>
+    <button class="btn" id="nextBtn">下一关</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2>🎉 恭喜过关！</h2>
+  <p>用了 <span id="winMoves">0</span> 步</p>
+  <button class="btn" id="nextLevelBtn">下一关</button>
+</div>
+
+<script>
+(function() {
+  var levels = [
+    [
+      '#######',
+      '#     #',
+      '# .$. #',
+      '# .@. #',
+      '# .$. #',
+      '#     #',
+      '#######'
+    ],
+    [
+      '########',
+      '#      #',
+      '# .$.  #',
+      '# $$.  #',
+      '# .@.  #',
+      '#      #',
+      '########'
+    ],
+    [
+      '  #####',
+      '###   #',
+      '#.$.$ #',
+      '#.$@$ #',
+      '#####  '
+    ],
+    [
+      '########',
+      '#      #',
+      '# .$$. #',
+      '# #@#. #',
+      '# .$.  #',
+      '#      #',
+      '########'
+    ],
+    [
+      '  ######',
+      '###    #',
+      '#  $.  #',
+      '# $$.$ #',
+      '# .$.@ #',
+      '########'
+    ]
+  ];
+  
+  var currentLevel = 0;
+  var board = [];
+  var playerPos = { x: 0, y: 0 };
+  var moves = 0;
+  
+  var boardEl = document.getElementById('game-board');
+  var levelNumEl = document.getElementById('levelNum');
+  var movesEl = document.getElementById('moves');
+  var resetBtn = document.getElementById('resetBtn');
+  var nextBtn = document.getElementById('nextBtn');
+  var winMessage = document.getElementById('winMessage');
+  var winMovesEl = document.getElementById('winMoves');
+  var nextLevelBtn = document.getElementById('nextLevelBtn');
+  
+  function initLevel(levelIndex) {
+    if (levelIndex >= levels.length) {
+      alert('恭喜你通关了所有关卡！');
+      currentLevel = 0;
+      levelIndex = 0;
+    }
+    
+    currentLevel = levelIndex;
+    var level = levels[currentLevel];
+    board = [];
+    
+    for (var y = 0; y < level.length; y++) {
+      var row = [];
+      for (var x = 0; x < level[y].length; x++) {
+        var cell = level[y][x];
+        switch(cell) {
+          case '#': row.push('wall'); break;
+          case '.': row.push('target'); break;
+          case '$': row.push('box'); break;
+          case '@': row.push('player'); playerPos = { x: x, y: y }; break;
+          case '*': row.push('box-on-target'); break;
+          case '+': row.push('player-on-target'); playerPos = { x: x, y: y }; break;
+          default: row.push('floor');
+        }
+      }
+      board.push(row);
+    }
+    
+    moves = 0;
+    updateUI();
+    renderBoard();
+    winMessage.style.display = 'none';
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    boardEl.style.gridTemplateColumns = `repeat(${board[0].length}, 40px)`;
+    
+    for (var y = 0; y < board.length; y++) {
+      for (var x = 0; x < board[y].length; x++) {
+        var cell = document.createElement('div');
+        cell.className = 'cell ' + board[y][x];
+        
+        if (board[y][x] === 'player' || board[y][x] === 'player-on-target') {
+          cell.innerHTML = '😊';
+        } else if (board[y][x] === 'box') {
+          cell.innerHTML = '📦';
+        } else if (board[y][x] === 'box-on-target') {
+          cell.innerHTML = '✅';
+        }
+        
+        boardEl.appendChild(cell);
+      }
+    }
+  }
+  
+  function updateUI() {
+    levelNumEl.textContent = currentLevel + 1;
+    movesEl.textContent = moves;
+  }
+  
+  function checkWin() {
+    for (var y = 0; y < board.length; y++) {
+      for (var x = 0; x < board[y].length; x++) {
+        if (board[y][x] === 'box') {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+  
+  function movePlayer(dx, dy) {
+    var newX = playerPos.x + dx;
+    var newY = playerPos.y + dy;
+    var newCell = board[newY] && board[newY][newX];
+    
+    if (!newCell || newCell === 'wall') return;
+    
+    if (newCell === 'box' || newCell === 'box-on-target') {
+      var boxNewX = newX + dx;
+      var boxNewY = newY + dy;
+      var boxNewCell = board[boxNewY] && board[boxNewY][boxNewX];
+      
+      if (!boxNewCell || boxNewCell === 'wall' || boxNewCell === 'box' || boxNewCell === 'box-on-target') {
+        return;
+      }
+      
+      board[boxNewY][boxNewX] = (boxNewCell === 'target') ? 'box-on-target' : 'box';
+      board[newY][newX] = (board[newY][newX] === 'box-on-target') ? 'player-on-target' : 'player';
+      board[playerPos.y][playerPos.x] = (board[playerPos.y][playerPos.x] === 'player-on-target') ? 'target' : 'floor';
+      playerPos = { x: newX, y: newY };
+      moves++;
+      updateUI();
+      renderBoard();
+      
+      if (checkWin()) {
+        winMovesEl.textContent = moves;
+        winMessage.style.display = 'block';
+      }
+    } else {
+      board[newY][newX] = (newCell === 'target') ? 'player-on-target' : 'player';
+      board[playerPos.y][playerPos.x] = (board[playerPos.y][playerPos.x] === 'player-on-target') ? 'target' : 'floor';
+      playerPos = { x: newX, y: newY };
+      moves++;
+      updateUI();
+      renderBoard();
+    }
+  }
+  
+  resetBtn.addEventListener('click', function() {
+    initLevel(currentLevel);
+  });
+  
+  nextBtn.addEventListener('click', function() {
+    initLevel(currentLevel + 1);
+  });
+  
+  nextLevelBtn.addEventListener('click', function() {
+    initLevel(currentLevel + 1);
+  });
+  
+  document.addEventListener('keydown', function(e) {
+    switch(e.key) {
+      case 'ArrowUp':
+      case 'w':
+      case 'W':
+        e.preventDefault();
+        movePlayer(0, -1);
+        break;
+      case 'ArrowDown':
+      case 's':
+      case 'S':
+        e.preventDefault();
+        movePlayer(0, 1);
+        break;
+      case 'ArrowLeft':
+      case 'a':
+      case 'A':
+        e.preventDefault();
+        movePlayer(-1, 0);
+        break;
+      case 'ArrowRight':
+      case 'd':
+      case 'D':
+        e.preventDefault();
+        movePlayer(1, 0);
+        break;
+    }
+  });
+  
+  initLevel(0);
+})();
+</script>
+</body>
+</html>

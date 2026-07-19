@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>倒水排序</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .ui-bar { margin-bottom: 20px; display: flex; gap: 30px; align-items: center; }
+  .level-box, .moves-box { text-align: center; }
+  .level-box .label, .moves-box .label { font-size: 14px; color: #888; }
+  .level-box .value, .moves-box .value { font-size: 24px; font-weight: bold; color: #4ade80; }
+  #game-board { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: 500px; }
+  .glass { width: 55px; height: 100px; background: rgba(255,255,255,0.1); border: 3px solid rgba(255,255,255,0.3); border-radius: 8px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s; }
+  .glass:hover { border-color: rgba(59, 130, 246, 0.8); }
+  .glass.selected { border-color: #3b82f6; box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+  .glass.completed { border-color: #4ade80; }
+  .liquid { position: absolute; bottom: 0; left: 0; right: 0; transition: height 0.3s ease; }
+  .btn { padding: 10px 25px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: all 0.2s; margin-top: 20px; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn:active { transform: scale(0.95); }
+  .game-over { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px; text-align: center; display: none; z-index: 100; border: 2px solid #6366f1; }
+  .game-over h2 { color: #4ade80; margin-bottom: 10px; font-size: 32px; }
+  .game-over .final-score { font-size: 36px; color: #fff; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="level-box">
+      <div class="label">关卡</div>
+      <div class="value" id="level">1</div>
+    </div>
+    <div class="moves-box">
+      <div class="label">步数</div>
+      <div class="value" id="moves">0</div>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<div class="game-over" id="gameOver">
+  <h2>🎉 恭喜过关！</h2>
+  <div class="final-score" id="finalScore">用时 0 步</div>
+  <button class="btn" id="nextLevelBtn">下一关</button>
+</div>
+
+<script>
+(function() {
+  var boardEl = document.getElementById('game-board');
+  var levelEl = document.getElementById('level');
+  var movesEl = document.getElementById('moves');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var gameOverEl = document.getElementById('gameOver');
+  var finalScoreEl = document.getElementById('finalScore');
+  var nextLevelBtn = document.getElementById('nextLevelBtn');
+  
+  var COLORS = ['#ef4444', '#3b82f6', '#4ade80', '#fbbf24', '#c084fc', '#fb923c'];
+  var LEVELS = [
+    { colors: 2, glasses: 3, height: 3 },
+    { colors: 3, glasses: 4, height: 3 },
+    { colors: 3, glasses: 5, height: 4 },
+    { colors: 4, colors: 4, glasses: 5, height: 4 },
+    { colors: 4, glasses: 6, height: 5 },
+    { colors: 5, glasses: 6, height: 5 },
+    { colors: 5, glasses: 7, height: 6 },
+    { colors: 6, glasses: 8, height: 6 },
+  ];
+  
+  var glasses = [];
+  var selectedGlass = null;
+  var level = 0;
+  var moves = 0;
+  var GLASS_HEIGHT = 90;
+  
+  function initGame(lvl) {
+    level = lvl || 0;
+    moves = 0;
+    selectedGlass = null;
+    levelEl.textContent = level + 1;
+    movesEl.textContent = moves;
+    gameOverEl.style.display = 'none';
+    
+    var config = LEVELS[Math.min(level, LEVELS.length - 1)];
+    generateLevel(config);
+    renderBoard();
+  }
+  
+  function generateLevel(config) {
+    glasses = [];
+    
+    for (var i = 0; i < config.glasses; i++) {
+      glasses.push({ layers: [], maxHeight: config.height });
+    }
+    
+    for (var i = 0; i < config.colors; i++) {
+      for (var j = 0; j < config.height; j++) {
+        glasses[i].layers.push(COLORS[i]);
+      }
+    }
+    
+    var shuffleSteps = (config.colors * config.height) * 3;
+    
+    for (var step = 0; step < shuffleSteps; step++) {
+      var fromIdx = Math.floor(Math.random() * glasses.length);
+      var toIdx = Math.floor(Math.random() * glasses.length);
+      
+      if (fromIdx !== toIdx) {
+        tryPour(fromIdx, toIdx);
+      }
+    }
+    
+    for (var i = glasses.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var temp = glasses[i];
+      glasses[i] = glasses[j];
+      glasses[j] = temp;
+    }
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    
+    for (var i = 0; i < glasses.length; i++) {
+      var glass = document.createElement('div');
+      glass.className = 'glass';
+      glass.dataset.index = i;
+      
+      if (selectedGlass === i) {
+        glass.classList.add('selected');
+      }
+      
+      if (isCompleted(i)) {
+        glass.classList.add('completed');
+      }
+      
+      var liquidHeight = GLASS_HEIGHT / glasses[i].maxHeight;
+      for (var j = 0; j < glasses[i].layers.length; j++) {
+        var liquid = document.createElement('div');
+        liquid.className = 'liquid';
+        liquid.style.backgroundColor = glasses[i].layers[j];
+        liquid.style.height = liquidHeight + 'px';
+        liquid.style.bottom = (j * liquidHeight) + 'px';
+        glass.appendChild(liquid);
+      }
+      
+      glass.addEventListener('click', function() {
+        onGlassClick(parseInt(this.dataset.index));
+      });
+      
+      boardEl.appendChild(glass);
+    }
+  }
+  
+  function isCompleted(index) {
+    var glass = glasses[index];
+    if (glass.layers.length === 0) return false;
+    var color = glass.layers[0];
+    for (var i = 1; i < glass.layers.length; i++) {
+      if (glass.layers[i] !== color) return false;
+    }
+    return glass.layers.length === glass.maxHeight;
+  }
+  
+  function onGlassClick(index) {
+    if (gameOver) return;
+    
+    if (selectedGlass === null) {
+      if (glasses[index].layers.length > 0 && !isCompleted(index)) {
+        selectedGlass = index;
+        renderBoard();
+      }
+      return;
+    }
+    
+    if (selectedGlass === index) {
+      selectedGlass = null;
+      renderBoard();
+      return;
+    }
+    
+    if (selectedGlass !== null) {
+      if (tryPour(selectedGlass, index)) {
+        moves++;
+        movesEl.textContent = moves;
+        selectedGlass = null;
+        renderBoard();
+        
+        if (checkWin()) {
+          setTimeout(function() {
+            gameOverEl.style.display = 'block';
+            finalScoreEl.textContent = '用时 ' + moves + ' 步';
+          }, 300);
+        }
+      } else {
+        if (glasses[index].layers.length > 0 && !isCompleted(index)) {
+          selectedGlass = index;
+        } else {
+          selectedGlass = null;
+        }
+        renderBoard();
+      }
+    }
+  }
+  
+  function tryPour(fromIndex, toIndex) {
+    if (fromIndex === toIndex) return false;
+    
+    var fromGlass = glasses[fromIndex];
+    var toGlass = glasses[toIndex];
+    
+    if (fromGlass.layers.length === 0) return false;
+    if (toGlass.layers.length >= toGlass.maxHeight) return false;
+    
+    var fromColor = fromGlass.layers[fromGlass.layers.length - 1];
+    
+    if (toGlass.layers.length > 0) {
+      var toColor = toGlass.layers[toGlass.layers.length - 1];
+      if (fromColor !== toColor) return false;
+    }
+    
+    var poured = 0;
+    while (fromGlass.layers.length > 0 && toGlass.layers.length < toGlass.maxHeight) {
+      var color = fromGlass.layers[fromGlass.layers.length - 1];
+      if (toGlass.layers.length > 0 && color !== toGlass.layers[toGlass.layers.length - 1]) break;
+      toGlass.layers.push(fromGlass.layers.pop());
+      poured++;
+    }
+    
+    return poured > 0;
+  }
+  
+  function checkWin() {
+    for (var i = 0; i < glasses.length; i++) {
+      if (glasses[i].layers.length > 0 && !isCompleted(i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+  
+  newGameBtn.addEventListener('click', function() { initGame(0); });
+  nextLevelBtn.addEventListener('click', function() { initGame(level + 1); });
+  
+  initGame(0);
+})();
+</script>
+</body>
+</html>

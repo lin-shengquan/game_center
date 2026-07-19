@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>中国象棋 - Xiangqi</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; font-family: "PingFang SC", "Microsoft YaHei", Arial, sans-serif; background: #1a1a2e; color: #fff; user-select: none; }
+  #game-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-board { display: grid; grid-template-columns: repeat(9, 1fr); gap: 0; background: #dcb35c; padding: 10px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .cell { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; }
+  .grid-line { position: absolute; background: #8b7355; }
+  .grid-line.h { width: 100%; height: 1px; top: 50%; left: 0; }
+  .grid-line.v { width: 1px; height: 100%; top: 0; left: 50%; }
+  .grid-line.d1 { width: 141%; height: 1px; top: 50%; left: -20.5%; transform: rotate(45deg); }
+  .grid-line.d2 { width: 141%; height: 1px; top: 50%; left: -20.5%; transform: rotate(-45deg); }
+  .river { position: absolute; top: 50%; left: 0; width: 100%; height: 2px; background: #8b7355; }
+  .piece { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: bold; position: relative; z-index: 1; }
+  .piece.red { background: radial-gradient(circle at 30% 30%, #ff6b6b, #c0392b); color: #fff; box-shadow: 2px 2px 4px rgba(0,0,0,0.4); }
+  .piece.black { background: radial-gradient(circle at 30% 30%, #34495e, #1a252f); color: #fff; box-shadow: 2px 2px 4px rgba(0,0,0,0.4); }
+  .piece.selected { transform: scale(1.1); box-shadow: 0 0 10px rgba(59, 130, 246, 0.8); }
+  .valid-move { width: 12px; height: 12px; border-radius: 50%; background: rgba(74, 222, 128, 0.6); }
+  .ui-bar { margin-bottom: 10px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .status { font-size: 18px; font-weight: bold; }
+  .btn { padding: 8px 20px; font-size: 16px; font-weight: bold; background: #6366f1; color: #fff; border: none; border-radius: 20px; cursor: pointer; transition: background 0.2s; }
+  .btn:hover { background: #4f46e5; }
+  .btn:active { transform: scale(0.95); }
+  .mode-btn { padding: 6px 14px; font-size: 14px; background: #4a4a6a; }
+  .mode-btn.active { background: #6366f1; }
+  .win-message { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; text-align: center; display: none; z-index: 100; }
+  .win-message h2 { color: #4ade80; margin-bottom: 15px; font-size: 28px; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div class="ui-bar">
+    <div class="status" id="status">红方先行</div>
+    <div class="mode-group">
+      <button class="btn mode-btn active" id="pveMode">人机对战</button>
+      <button class="btn mode-btn" id="pvpMode">双人对战</button>
+    </div>
+    <button class="btn" id="newGameBtn">新游戏</button>
+    <button class="btn" id="undoBtn">悔棋</button>
+  </div>
+  <div id="game-board"></div>
+</div>
+
+<div class="win-message" id="winMessage">
+  <h2 id="winnerText">🎉 红方获胜！</h2>
+  <button class="btn" id="newGameWinBtn">再来一局</button>
+</div>
+
+<script>
+(function() {
+  var BOARD_ROWS = 10;
+  var BOARD_COLS = 9;
+  var board = [];
+  var currentPlayer = 1;
+  var selectedPiece = null;
+  var history = [];
+  var gameOver = false;
+  var gameMode = 'pve';
+  var isAIThinking = false;
+  
+  var boardEl = document.getElementById('game-board');
+  var statusEl = document.getElementById('status');
+  var pveModeBtn = document.getElementById('pveMode');
+  var pvpModeBtn = document.getElementById('pvpMode');
+  var newGameBtn = document.getElementById('newGameBtn');
+  var undoBtn = document.getElementById('undoBtn');
+  var winMessage = document.getElementById('winMessage');
+  var winnerText = document.getElementById('winnerText');
+  var newGameWinBtn = document.getElementById('newGameWinBtn');
+  
+  var pieces = {
+    'k': { name: '帅', name2: '将', value: 10000 },
+    'a': { name: '仕', name2: '士', value: 200 },
+    'b': { name: '相', name2: '象', value: 200 },
+    'n': { name: '马', value: 450 },
+    'r': { name: '车', value: 1000 },
+    'c': { name: '炮', value: 450 },
+    'p': { name: '兵', name2: '卒', value: 100 }
+  };
+  
+  function initGame() {
+    board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
+    
+    board[0][0] = { type: 'r', player: 2 };
+    board[0][1] = { type: 'n', player: 2 };
+    board[0][2] = { type: 'b', player: 2 };
+    board[0][3] = { type: 'a', player: 2 };
+    board[0][4] = { type: 'k', player: 2 };
+    board[0][5] = { type: 'a', player: 2 };
+    board[0][6] = { type: 'b', player: 2 };
+    board[0][7] = { type: 'n', player: 2 };
+    board[0][8] = { type: 'r', player: 2 };
+    board[2][1] = { type: 'c', player: 2 };
+    board[2][7] = { type: 'c', player: 2 };
+    board[3][0] = { type: 'p', player: 2 };
+    board[3][2] = { type: 'p', player: 2 };
+    board[3][4] = { type: 'p', player: 2 };
+    board[3][6] = { type: 'p', player: 2 };
+    board[3][8] = { type: 'p', player: 2 };
+    
+    board[9][0] = { type: 'r', player: 1 };
+    board[9][1] = { type: 'n', player: 1 };
+    board[9][2] = { type: 'b', player: 1 };
+    board[9][3] = { type: 'a', player: 1 };
+    board[9][4] = { type: 'k', player: 1 };
+    board[9][5] = { type: 'a', player: 1 };
+    board[9][6] = { type: 'b', player: 1 };
+    board[9][7] = { type: 'n', player: 1 };
+    board[9][8] = { type: 'r', player: 1 };
+    board[7][1] = { type: 'c', player: 1 };
+    board[7][7] = { type: 'c', player: 1 };
+    board[6][0] = { type: 'p', player: 1 };
+    board[6][2] = { type: 'p', player: 1 };
+    board[6][4] = { type: 'p', player: 1 };
+    board[6][6] = { type: 'p', player: 1 };
+    board[6][8] = { type: 'p', player: 1 };
+    
+    currentPlayer = 1;
+    selectedPiece = null;
+    history = [];
+    gameOver = false;
+    isAIThinking = false;
+    renderBoard();
+    statusEl.textContent = '红方先行';
+    winMessage.style.display = 'none';
+  }
+  
+  function renderBoard() {
+    boardEl.innerHTML = '';
+    
+    for (var r = 0; r < BOARD_ROWS; r++) {
+      for (var c = 0; c < BOARD_COLS; c++) {
+        var cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        
+        var hLine = document.createElement('div');
+        hLine.className = 'grid-line h';
+        cell.appendChild(hLine);
+        
+        var vLine = document.createElement('div');
+        vLine.className = 'grid-line v';
+        cell.appendChild(vLine);
+        
+        if ((r === 2 || r === 7) && (c === 3 || c === 5)) {
+          var d1 = document.createElement('div');
+          d1.className = 'grid-line d1';
+          cell.appendChild(d1);
+        }
+        if ((r === 3 || r === 6) && (c === 2 || c === 4 || c === 6)) {
+          var d2 = document.createElement('div');
+          d2.className = 'grid-line d2';
+          cell.appendChild(d2);
+        }
+        
+        if (r === 4 && c === 0) {
+          var river = document.createElement('div');
+          river.className = 'river';
+          cell.appendChild(river);
+        }
+        
+        if (board[r][c]) {
+          var piece = document.createElement('div');
+          piece.className = 'piece ' + (board[r][c].player === 1 ? 'red' : 'black');
+          var p = pieces[board[r][c].type];
+          piece.textContent = board[r][c].player === 1 ? (p.name2 || p.name) : p.name;
+          
+          if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
+            piece.classList.add('selected');
+          }
+          
+          cell.appendChild(piece);
+        } else if (selectedPiece && isValidMove(selectedPiece.r, selectedPiece.c, r, c)) {
+          var valid = document.createElement('div');
+          valid.className = 'valid-move';
+          cell.appendChild(valid);
+        }
+        
+        cell.addEventListener('click', function() {
+          onCellClick(parseInt(this.dataset.row), parseInt(this.dataset.col));
+        });
+        
+        boardEl.appendChild(cell);
+      }
+    }
+  }
+  
+  function onCellClick(r, c) {
+    if (gameOver) return;
+    if (isAIThinking) return;
+    
+    if (gameMode === 'pve' && currentPlayer === 2) return;
+    
+    if (selectedPiece) {
+      if (selectedPiece.r === r && selectedPiece.c === c) {
+        selectedPiece = null;
+        renderBoard();
+        return;
+      }
+      
+      if (isValidMove(selectedPiece.r, selectedPiece.c, r, c)) {
+        makeMove(selectedPiece.r, selectedPiece.c, r, c);
+        selectedPiece = null;
+        
+        if (!gameOver && gameMode === 'pve' && currentPlayer === 2) {
+          isAIThinking = true;
+          statusEl.textContent = 'AI思考中...';
+          setTimeout(function() {
+            aiMove();
+            isAIThinking = false;
+          }, 500);
+        }
+        return;
+      }
+    }
+    
+    if (board[r][c] && board[r][c].player === currentPlayer) {
+      selectedPiece = { r, c };
+      renderBoard();
+    }
+  }
+  
+  function makeMove(fromR, fromC, toR, toC) {
+    history.push({
+      board: board.map(row => row.map(cell => cell ? { ...cell } : null)),
+      currentPlayer: currentPlayer
+    });
+    
+    var captured = board[toR][toC];
+    board[toR][toC] = board[fromR][fromC];
+    board[fromR][fromC] = null;
+    
+    if (captured && captured.type === 'k') {
+      gameOver = true;
+      statusEl.textContent = (currentPlayer === 1 ? '红方' : '黑方') + '获胜！';
+      winnerText.textContent = '🎉 ' + (currentPlayer === 1 ? '红方' : '黑方') + '获胜！';
+      winMessage.style.display = 'block';
+      renderBoard();
+      return;
+    }
+    
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    statusEl.textContent = (currentPlayer === 1 ? '红方' : '黑方') + '回合';
+    renderBoard();
+  }
+  
+  function isValidMove(fromR, fromC, toR, toC) {
+    if (fromR === toR && fromC === toC) return false;
+    
+    var piece = board[fromR][fromC];
+    if (!piece) return false;
+    
+    var target = board[toR][toC];
+    if (target && target.player === piece.player) return false;
+    
+    switch(piece.type) {
+      case 'k': return isValidKingMove(piece, fromR, fromC, toR, toC);
+      case 'a': return isValidAdvisorMove(piece, fromR, fromC, toR, toC);
+      case 'b': return isValidElephantMove(piece, fromR, fromC, toR, toC);
+      case 'n': return isValidKnightMove(piece, fromR, fromC, toR, toC);
+      case 'r': return isValidRookMove(piece, fromR, fromC, toR, toC);
+      case 'c': return isValidCannonMove(piece, fromR, fromC, toR, toC);
+      case 'p': return isValidPawnMove(piece, fromR, fromC, toR, toC);
+      default: return false;
+    }
+  }
+  
+  function isValidKingMove(piece, r, c, nr, nc) {
+    if (piece.player === 1) {
+      if (nr < 7 || nr > 9 || nc < 3 || nc > 5) return false;
+    } else {
+      if (nr < 0 || nr > 2 || nc < 3 || nc > 5) return false;
+    }
+    
+    var dr = Math.abs(nr - r);
+    var dc = Math.abs(nc - c);
+    return (dr === 1 && dc === 0) || (dr === 0 && dc === 1);
+  }
+  
+  function isValidAdvisorMove(piece, r, c, nr, nc) {
+    if (piece.player === 1) {
+      if (nr < 7 || nr > 9 || nc < 3 || nc > 5) return false;
+    } else {
+      if (nr < 0 || nr > 2 || nc < 3 || nc > 5) return false;
+    }
+    
+    var dr = Math.abs(nr - r);
+    var dc = Math.abs(nc - c);
+    return dr === 1 && dc === 1;
+  }
+  
+  function isValidElephantMove(piece, r, c, nr, nc) {
+    if (piece.player === 1) {
+      if (nr < 5) return false;
+    } else {
+      if (nr > 4) return false;
+    }
+    
+    var dr = Math.abs(nr - r);
+    var dc = Math.abs(nc - c);
+    if (dr !== 2 || dc !== 2) return false;
+    
+    var midR = (r + nr) / 2;
+    var midC = (c + nc) / 2;
+    return !board[midR][midC];
+  }
+  
+  function isValidKnightMove(piece, r, c, nr, nc) {
+    var dr = Math.abs(nr - r);
+    var dc = Math.abs(nc - c);
+    if (!((dr === 2 && dc === 1) || (dr === 1 && dc === 2))) return false;
+    
+    var blockR = r + (nr - r) / 2;
+    var blockC = c + (nc - c) / 2;
+    if (dr === 2) {
+      return !board[blockR][c];
+    } else {
+      return !board[r][blockC];
+    }
+  }
+  
+  function isValidRookMove(piece, r, c, nr, nc) {
+    if (r !== nr && c !== nc) return false;
+    
+    if (r === nr) {
+      var minC = Math.min(c, nc);
+      var maxC = Math.max(c, nc);
+      for (var col = minC + 1; col < maxC; col++) {
+        if (board[r][col]) return false;
+      }
+    } else {
+      var minR = Math.min(r, nr);
+      var maxR = Math.max(r, nr);
+      for (var row = minR + 1; row < maxR; row++) {
+        if (board[row][c]) return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  function isValidCannonMove(piece, r, c, nr, nc) {
+    if (r !== nr && c !== nc) return false;
+    
+    var count = 0;
+    
+    if (r === nr) {
+      var minC = Math.min(c, nc);
+      var maxC = Math.max(c, nc);
+      for (var col = minC + 1; col < maxC; col++) {
+        if (board[r][col]) count++;
+      }
+    } else {
+      var minR = Math.min(r, nr);
+      var maxR = Math.max(r, nr);
+      for (var row = minR + 1; row < maxR; row++) {
+        if (board[row][c]) count++;
+      }
+    }
+    
+    if (board[nr][nc]) {
+      return count === 1;
+    } else {
+      return count === 0;
+    }
+  }
+  
+  function isValidPawnMove(piece, r, c, nr, nc) {
+    var dr = nr - r;
+    var dc = nc - c;
+    
+    if (piece.player === 1) {
+      dr = -dr;
+    }
+    
+    if (piece.player === 1) {
+      if (r > 4) {
+        if (dr === 1 && dc === 0) return true;
+      } else {
+        if (dr === 1 && dc === 0) return true;
+        if (dr === 0 && Math.abs(dc) === 1) return true;
+      }
+    } else {
+      if (r < 5) {
+        if (dr === 1 && dc === 0) return true;
+      } else {
+        if (dr === 1 && dc === 0) return true;
+        if (dr === 0 && Math.abs(dc) === 1) return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  function aiMove() {
+    var moves = getAllValidMoves(2);
+    if (moves.length === 0) return;
+    
+    var bestMove = null;
+    var bestScore = -Infinity;
+    var DEPTH = 2;
+    
+    for (var i = 0; i < moves.length; i++) {
+      var move = moves[i];
+      simulateMove(move.fromR, move.fromC, move.toR, move.toC);
+      var score = minimax(DEPTH - 1, -Infinity, Infinity, false);
+      undoSimulation(move.fromR, move.fromC, move.toR, move.toC, move.captured);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+      } else if (score === bestScore && Math.random() < 0.3) {
+        bestMove = move;
+      }
+    }
+    
+    if (bestMove) {
+      makeMove(bestMove.fromR, bestMove.fromC, bestMove.toR, bestMove.toC);
+    }
+  }
+  
+  function minimax(depth, alpha, beta, isMaximizing) {
+    if (depth === 0) {
+      return evaluateBoard();
+    }
+    
+    var moves = getAllValidMoves(isMaximizing ? 2 : 1);
+    if (moves.length === 0) {
+      return isMaximizing ? -100000 : 100000;
+    }
+    
+    if (isMaximizing) {
+      var maxScore = -Infinity;
+      for (var i = 0; i < moves.length; i++) {
+        var move = moves[i];
+        simulateMove(move.fromR, move.fromC, move.toR, move.toC);
+        var score = minimax(depth - 1, alpha, beta, false);
+        undoSimulation(move.fromR, move.fromC, move.toR, move.toC, move.captured);
+        
+        maxScore = Math.max(maxScore, score);
+        alpha = Math.max(alpha, score);
+        if (beta <= alpha) break;
+      }
+      return maxScore;
+    } else {
+      var minScore = Infinity;
+      for (var i = 0; i < moves.length; i++) {
+        var move = moves[i];
+        simulateMove(move.fromR, move.fromC, move.toR, move.toC);
+        var score = minimax(depth - 1, alpha, beta, true);
+        undoSimulation(move.fromR, move.fromC, move.toR, move.toC, move.captured);
+        
+        minScore = Math.min(minScore, score);
+        beta = Math.min(beta, score);
+        if (beta <= alpha) break;
+      }
+      return minScore;
+    }
+  }
+  
+  function getAllValidMoves(player) {
+    var moves = [];
+    for (var r = 0; r < BOARD_ROWS; r++) {
+      for (var c = 0; c < BOARD_COLS; c++) {
+        if (board[r][c] && board[r][c].player === player) {
+          for (var nr = 0; nr < BOARD_ROWS; nr++) {
+            for (var nc = 0; nc < BOARD_COLS; nc++) {
+              if (isValidMove(r, c, nr, nc)) {
+                moves.push({
+                  fromR: r, fromC: c,
+                  toR: nr, toC: nc,
+                  captured: board[nr][nc] ? { ...board[nr][nc] } : null
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+    return moves;
+  }
+  
+  function simulateMove(fromR, fromC, toR, toC) {
+    var captured = board[toR][toC];
+    board[toR][toC] = board[fromR][fromC];
+    board[fromR][fromC] = null;
+    return captured;
+  }
+  
+  function undoSimulation(fromR, fromC, toR, toC, captured) {
+    board[fromR][fromC] = board[toR][toC];
+    board[toR][toC] = captured;
+  }
+  
+  function evaluateBoard() {
+    var score = 0;
+    
+    for (var r = 0; r < BOARD_ROWS; r++) {
+      for (var c = 0; c < BOARD_COLS; c++) {
+        if (board[r][c]) {
+          var piece = board[r][c];
+          var p = pieces[piece.type];
+          var value = p.value;
+          
+          if (piece.player === 2) {
+            score += value;
+            
+            if (piece.type === 'p') {
+              score += r * 20;
+            }
+            if (piece.type === 'n' || piece.type === 'b') {
+              score += Math.min(r, BOARD_ROWS - 1 - r) * 10;
+            }
+          } else {
+            score -= value;
+            
+            if (piece.type === 'p') {
+              score -= (BOARD_ROWS - 1 - r) * 20;
+            }
+            if (piece.type === 'n' || piece.type === 'b') {
+              score -= Math.min(r, BOARD_ROWS - 1 - r) * 10;
+            }
+          }
+        }
+      }
+    }
+    
+    return score;
+  }
+  
+  function undo() {
+    if (history.length === 0) return;
+    
+    var lastState = history.pop();
+    board = lastState.board;
+    currentPlayer = lastState.currentPlayer;
+    selectedPiece = null;
+    gameOver = false;
+    isAIThinking = false;
+    statusEl.textContent = (currentPlayer === 1 ? '红方' : '黑方') + '回合';
+    winMessage.style.display = 'none';
+    renderBoard();
+  }
+  
+  pveModeBtn.addEventListener('click', function() {
+    gameMode = 'pve';
+    pveModeBtn.classList.add('active');
+    pvpModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  pvpModeBtn.addEventListener('click', function() {
+    gameMode = 'pvp';
+    pvpModeBtn.classList.add('active');
+    pveModeBtn.classList.remove('active');
+    initGame();
+  });
+  
+  newGameBtn.addEventListener('click', initGame);
+  undoBtn.addEventListener('click', undo);
+  newGameWinBtn.addEventListener('click', initGame);
+  
+  initGame();
+})();
+</script>
+</body>
+</html>
