@@ -39,6 +39,11 @@ export function fallbackArtwork(title: string, variant: 'cover' | 'banner' | 'sc
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
+export function resolveArtworkUrl(src: string) {
+  if (/^(https?:|data:|blob:)/.test(src)) return src;
+  return `${import.meta.env.BASE_URL}${src.replace(/^\/+/, '')}`;
+}
+
 export function setFallbackArtwork(
   image: HTMLImageElement,
   title: string,

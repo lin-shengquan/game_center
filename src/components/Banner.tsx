@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { bannerItems } from '@/data/mockGames';
-import { fallbackArtwork } from '@/lib/artwork';
+import { resolveArtworkUrl, setFallbackArtwork } from '@/lib/artwork';
 
 export function Banner() {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -35,8 +35,9 @@ export function Banner() {
             }`}
           >
             <img
-              src={fallbackArtwork(item.title, 'banner')}
+              src={resolveArtworkUrl(item.image)}
               alt={item.title}
+              onError={(event) => setFallbackArtwork(event.currentTarget, item.title, 'banner')}
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-dark-900/90 via-dark-900/50 to-transparent" />

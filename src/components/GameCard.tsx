@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { RatingStars } from './RatingStars';
 import { Game } from '@/types';
-import { fallbackArtwork } from '@/lib/artwork';
+import { resolveArtworkUrl, setFallbackArtwork } from '@/lib/artwork';
 
 interface GameCardProps {
   game: Game;
@@ -27,8 +27,9 @@ export function GameCard({ game }: GameCardProps) {
     >
       <div className="relative aspect-video overflow-hidden">
         <img
-          src={fallbackArtwork(game.name, 'cover')}
+          src={resolveArtworkUrl(game.coverImage)}
           alt={game.name}
+          onError={(event) => setFallbackArtwork(event.currentTarget, game.name, 'cover')}
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-dark-900/80 via-transparent to-transparent" />
