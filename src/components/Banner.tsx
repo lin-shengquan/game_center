@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { bannerItems } from '@/data/mockGames';
+import { fallbackArtwork } from '@/lib/artwork';
 
 export function Banner() {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -34,7 +35,7 @@ export function Banner() {
             }`}
           >
             <img
-              src={item.image}
+              src={fallbackArtwork(item.title, 'banner')}
               alt={item.title}
               className="w-full h-full object-cover"
             />

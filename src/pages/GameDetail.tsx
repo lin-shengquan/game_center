@@ -3,6 +3,7 @@ import { ArrowLeft, Users, Play } from 'lucide-react';
 import { RatingStars } from '@/components/RatingStars';
 import { useGameStore } from '@/store/gameStore';
 import { categories } from '@/data/mockGames';
+import { fallbackArtwork } from '@/lib/artwork';
 
 export function GameDetail() {
   const { id } = useParams<{ id: string }>();
@@ -48,7 +49,7 @@ export function GameDetail() {
         <div className="space-y-4">
           <div className="rounded-2xl overflow-hidden">
             <img
-              src={game.coverImage}
+              src={fallbackArtwork(game.name, 'cover')}
               alt={game.name}
               className="w-full h-64 lg:h-80 object-cover"
             />
@@ -56,10 +57,10 @@ export function GameDetail() {
 
           {game.screenshots.length > 0 && (
             <div className="grid grid-cols-2 gap-4">
-              {game.screenshots.map((screenshot, index) => (
+              {game.screenshots.map((_screenshot, index) => (
                 <img
                   key={index}
-                  src={screenshot}
+                  src={fallbackArtwork(`${game.name} ${index + 1}`, 'screenshot')}
                   alt={`${game.name}截图 ${index + 1}`}
                   className="w-full h-32 object-cover rounded-xl"
                 />
